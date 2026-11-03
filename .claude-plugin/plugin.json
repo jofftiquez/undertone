@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
   "author": {
     "name": "Joff Tiquez",
@@ -401,6 +401,12 @@
         "card",
         "plain"
       ]
+    },
+    "clickPaths": {
+      "type": "boolean",
+      "title": "Click paths in replies",
+      "description": "A path in Claude's text (~/src/app.ts, ./out/report.md, /tmp/a.md) opens in the file viewer on a click; nothing is ever run",
+      "default": true
     }
   }
 }

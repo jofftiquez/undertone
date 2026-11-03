@@ -107,7 +107,7 @@ Claude's replies draw block by block, in the theme's colours:
 - **Quotes** get an accent bar; **GitHub alerts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) draw as coloured boxes with their label.
 - **Code** sits under a header with its language and `[ copy code ]`, highlighted, with no frame, so a mouse selection copies just the code.
 - **Rules** draw across the bubble; lists and quotes get `[ copy list ]` and `[ copy quote ]`.
-- **Numbers and paths stand out** in plain paragraphs and list items: numbers, versions (`v2.14.0`), durations (`250ms`) and percentages in amber, paths (`~/src/app.ts`, `./out/report.md`) in their own colour, `~~struck~~` struck through. A paragraph with a link stays Claude Code's own, so the link stays clickable. *Colour numbers and paths* off turns this off.
+- **Numbers and paths stand out** in plain paragraphs and list items: numbers, versions (`v2.14.0`), durations (`250ms`) and percentages in amber, paths (`~/src/app.ts`, `./out/report.md`) in the link colour, `~~struck~~` struck through. **Click a path** (`~/` is your home, `./` the project folder) and it opens in the file viewer, read-only, so a click never runs anything. A paragraph with a web link stays Claude Code's own, so that link stays clickable too. *Colour numbers and paths* and *Click paths in replies* turn these off.
 - **Right to left**: a paragraph or list item in Hebrew, Arabic or another right-to-left script is right-aligned, with its bullet on the right.
 - **Side by side**: tables and pictures that follow each other share a row when they fit, and stack when they don't.
 
@@ -135,6 +135,10 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
     <td><img src="docs/class.png" alt="A class diagram: Animal, Duck and Fish as boxes with their members, and Duck and Fish inherit Animal"></td>
   </tr>
   <tr>
+    <td><img src="docs/git.png" alt="A git graph: main and feature lanes, the branch starting, two commits on feature, a hotfix on main, and the merge tagged v0.18"></td>
+    <td><img src="docs/mindmap-journey.png" alt="A mindmap of undertone beside a user journey with a 5/5 and a 2/5 score bar"></td>
+  </tr>
+  <tr>
     <td colspan="2"><img src="docs/gantt.png" alt="A gantt chart: tasks as bars on a date axis, done in green, active in amber, a milestone diamond at the end"></td>
   </tr>
 </table>
@@ -142,10 +146,11 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 - **Charts** from ` ```mermaid ` blocks: `xychart-beta` bar and line series as bars measured to an eighth of a cell, the tallest one highlighted, and `pie` charts as share bars, largest first.
 - **Flowcharts** (`graph LR` / `TD`): a straight chain as boxes joined by arrows, with edge labels; branches and loops as a tree, `↺` where it loops back.
 - **State diagrams** draw like flowcharts, `●` where they start and `◉` where they end; **class and ER diagrams** as a box per class or entity with its members, and the relations under them in words (`Duck ──▷ Animal  inherits`, `CUSTOMER ──▶ ORDER  places (one to many)`).
+- **Mindmaps** as a tree from the root, each branch in its own colour; **user journeys** as a score bar per task, red to green, with who took part; **git graphs** as lanes, `├─╮` where a branch starts and `●─╯` where it merges, with commit ids and tags.
 - **Gantt charts**: a bar per task on a shared date axis, with sections; done tasks green, active amber, critical red, milestones `◆` (`YYYY-MM-DD` dates; durations in `d`, `h`, `w`, or `after <task>`).
 - **Sequence diagrams**: a box per participant over its lifeline, each message an arrow with its text above, replies dashed, notes and `loop`/`alt` labels as dim lines.
 - **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run. A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
-- `[ source ]`, `[ art ]` and `[ png ]` on each. Other mermaid kinds (mindmaps, journeys, git graphs), and a block still streaming, stay code.
+- `[ source ]`, `[ art ]` and `[ png ]` on each. Other mermaid kinds (quadrant charts, timelines, Sankey, C4), and a block still streaming, stay code.
 - So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
 
 ### Math, footnotes and copying
@@ -261,6 +266,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Run-in-background hint | `compact` | `hidden`, `engine` |
 | Rich text | on | off = Claude Code's own Markdown |
 | Colour numbers and paths | on | |
+| Click paths in replies | on | opens them in the file viewer |
 | Heading style | `banner` | `bold`, `underline` |
 | Task list style | `brackets` | `ticks`, `box`, `progress` |
 | Tell Claude about pictures | on | the note on your prompts |
@@ -291,7 +297,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 278 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 284 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
