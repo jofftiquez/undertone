@@ -92,9 +92,9 @@ table.
 
 - **System cards**: every slash command's output in a card: the command in Claude's colour, `[ copy ]` and the time; a red frame and `✗` when it failed.
 - **Group chat**: a message from an agent, teammate or another session is its own bubble with its name and colour; a finished background task is a chip, `✓ Explore finished · 9s`.
-- **Agents**: Claude handing work to an agent reads `↳ Claude → Explore: find the config ◌ working`, then `✓ done`; a foreground agent's report is its own bubble, folded when long. Above the prompt, `Agents ● Explore · find the config ○ planner (done)`, and the turn summary counts them apart: `· 5 tools · 2 agents (31 tools)`.
+- **Agents**: Claude handing work to an agent reads `↳ Claude → Explore: find the config`, with `◌ working` or `↗ in background`, then `✓ done`; a foreground agent's report is its own bubble, folded when long, and a background agent's arrives as its own message. Above the prompt, `Agents ● Explore · find the config ○ planner (done)`, and the turn summary counts them apart: `· 5 tools · 2 agents (31 tools)`.
 - **Claude asks**: Claude's multiple-choice questions sit under a `Claude asks` header, and the call's row says what was asked.
-- **Welcome**: `✻ Good morning, Pogi · 3rd session today · last one ended 2h ago` when a session starts.
+- **Welcome**: `✻ Good morning · 3rd session today · last one ended 2h ago` when a session starts (with your name, if you set *Your label*).
 - **Footer pills** for mode labels, and a quieter run-in-background hint: `↧ ctrl+b · background` (or hidden).
 
 ### Show-off
@@ -192,7 +192,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 
 ## Develop
 
-Clone the repo and point Claude Code at it; every save reloads in all open sessions:
+Clone the repo and point Claude Code at it; after a change, `/reload-plugins` picks it up in an open session:
 
 ```bash
 git clone https://github.com/jofftiquez/undertone ~/Documents/workspace/undertone
@@ -206,7 +206,7 @@ claude plugin validate .   # what the engine will load, and what it would refuse
 claude plugin test .       # 226 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
-CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code
+CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
 writes to `.claude-plugin/types/` when it loads the mod, so run it locally: `npx -p typescript tsc --noEmit -p .`
 
 The code lives in `hooks/register.tsx`; the state contract in `types/index.d.ts`.
