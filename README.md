@@ -89,6 +89,15 @@ table.
 - **Quick replies**: after Claude answers, `[ Go ahead ] [ Explain more ] [ Shorter, please ]` sit above the prompt; one press sends it as you. Set your own in `/config` (separated by `|`), or `off`.
 - **Light by day, dark by night**: for themes with both versions (messenger, catppuccin, gruvbox, solarized, github, rose-pine), turn on *Light by day, dark by night* and set the hours (default `7-19`).
 
+### The room
+
+- **System cards**: every slash command's output in a card: the command in Claude's colour, `[ copy ]` and the time; a red frame and `✗` when it failed.
+- **Group chat**: a message from an agent, teammate or another session is its own bubble with its name and colour; a finished background task is a chip, `✓ Explore finished · 9s`.
+- **Agents**: Claude handing work to an agent reads `↳ Claude → Explore: find the config ◌ working`, then `✓ done`; a foreground agent's report is its own bubble, folded when long. Above the prompt, `Agents ● Explore · find the config ○ planner (done)`, and the turn summary counts them apart: `· 5 tools · 2 agents (31 tools)`.
+- **Claude asks**: Claude's multiple-choice questions sit under a `Claude asks` header, and the call's row says what was asked.
+- **Welcome**: `✻ Good morning, Pogi · 3rd session today · last one ended 2h ago` when a session starts.
+- **Footer pills** for mode labels, and a quieter run-in-background hint: `↧ ctrl+b · background` (or hidden).
+
 ### Small things that add up
 
 - **Slash commands stand out**: a command you mention in a prompt (`try /undertone-theme`) is drawn bold in Claude's colour. Only real commands count, so paths like `/tmp/x` stay plain. (A command you run on its own is drawn by Claude Code, not as a bubble.)
@@ -159,6 +168,8 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Typing bubble | on | off = Claude Code's plain working line |
 | Quick replies | `Go ahead\|Explain more\|Shorter, please` | `off` = none |
 | Light by day, dark by night | off | with *Daytime hours* `7-19` |
+| Welcome line | on | |
+| Run-in-background hint | `compact` | `hidden`, `engine` |
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
 
@@ -182,7 +193,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 196 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 213 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code

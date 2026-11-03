@@ -1,4 +1,4 @@
-import type { ElementTable, EngineInterface, Register, RenderSurface } from 'claude-code'
+import type { ElementTable, EngineInterface, Register, RenderInput, RenderSurface } from 'claude-code'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const STAMPS = { plugin: 'undertone', key: 'stamps' } as const
@@ -25,6 +25,9 @@ const REACTIONS = { plugin: 'undertone', key: 'reactions' } as const
 const REACT_OPEN = { plugin: 'undertone', key: 'reactOpen' } as const
 // Your latest prompt and whether Claude has started on it (read receipts, quick replies).
 const LAST_PROMPT = { plugin: 'undertone', key: 'lastPrompt' } as const
+// A background agent's run, by the tool_use_id that started it: the engine never redraws that
+// row when the agent ends, so the row reads this and the write redraws it.
+const AGENT_RUN = { plugin: 'undertone', key: 'agentRun' } as const
 
 // ---------- Theme system ----------
 // A theme is a full "look": per side (you / Claude) a bubble shape, border, label, fill,
@@ -269,6 +272,7 @@ function describe(call: { tool: string; input: unknown }) {
     case 'Agent': case 'Task': return `Delegated: ${str('description') || firstLine(str('prompt'))}`
     case 'Skill': return `Loaded skill ${str('skill')}`
     case 'TodoWrite': return 'Updated the todo list'
+    case 'AskUserQuestion': { const q = (i.questions as { question?: string }[] | undefined)?.[0]?.question; return q ? `Asked: ${firstLine(q)}` : 'Asked you a question' }
   }
   const mcp = /^mcp__(.+?)__(.+)$/.exec(call.tool)
   const what = summarize(call.input)
@@ -606,8 +610,11 @@ type Call = { tool_use_id?: string; tool: string; input: unknown; isRunning: boo
 function outputText(out: unknown) {
   if (out === undefined || out === null) return ''
   if (typeof out === 'string') return out
+  const blocksText = (b: unknown) => (Array.isArray(b) ? b.filter((x: any) => x?.type === 'text' && typeof x.text === 'string').map((x: any) => x.text as string).join('\n') : '')
+  if (Array.isArray(out)) return blocksText(out) || JSON.stringify(out, null, 2)
   const o = out as Record<string, unknown>
   for (const k of ['stdout', 'content', 'text', 'result']) if (typeof o[k] === 'string' && o[k]) return o[k] as string
+  if (blocksText(o.content)) return blocksText(o.content)
   const file = o.file as Record<string, unknown> | undefined
   if (file && typeof file.content === 'string') return file.content
   return JSON.stringify(out, null, 2)
@@ -981,6 +988,34 @@ async function togglePin($: EngineInterface, key: string, pin: Pin) {
   await $.store.set('pins:' + (await $.session.id()), pins) // survives restart / resume
   $.ui.toast(pins[key] ? 'Pinned' : 'Unpinned')
 }
+// ---------- Agents ----------
+// Each agent keeps one colour, picked from Claude Code's theme keys by its name, so it follows
+// the terminal's light or dark palette.
+const AGENT_INKS = ['permission', 'success', 'warning', 'planMode', 'autoAccept', 'ide', 'merged']
+const agentInk = (name: string) => { let h = 0; for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) >>> 0; return AGENT_INKS[h % AGENT_INKS.length]! }
+const isAgentTool = (tool: string) => tool === 'Agent' || tool === 'Task'
+const ACTIVE = new Set(['pending', 'running', 'waiting', 'idle'])
+// Agents seen working since your last prompt, so a finished one still shows (○) until the next.
+const turnAgents = new Set<string>()
+const agentCalls = new Map<string, string>() // background agent id → the tool_use_id that started it
+async function agentStrip($: EngineInterface) {
+  const list = await $.agent.list().catch(() => [])
+  const out: { glyph: string; ink: string | undefined; label: string; dim: boolean }[] = []
+  for (const a of list) {
+    const name = a.teammateId?.split('@')[0] || a.type
+    if (ACTIVE.has(a.status)) turnAgents.add(a.id)
+    else if (!turnAgents.has(a.id)) continue
+    const done = !ACTIVE.has(a.status)
+    out.push({
+      glyph: !done ? '●' : a.status === 'failed' ? '✗' : a.status === 'killed' ? '⊘' : '○',
+      ink: !done ? agentInk(name) : a.status === 'failed' ? 'error' : undefined,
+      label: done ? `${name} (${a.status === 'completed' ? 'done' : a.status})` : `${name} · ${clip(a.description, 32)}`,
+      dim: done,
+    })
+  }
+  return out.slice(-6)
+}
+
 // ---------- Reactions ----------
 // 💖 rather than ❤️: the heart's variation selector makes terminals misjudge its width.
 const REACTION_SET = ['👍', '💖', '😂', '🤯']
@@ -1107,8 +1142,88 @@ async function exportChat($: EngineInterface, target: string) {
   return `Exported ${n} messages (${timed} with times) to ${path}`
 }
 
+// Claude handing work to an agent: "↳ Claude → Explore: find the config ◌ working", then the
+// agent's report as its own bubble in its colour, folded when long.
+async function drawAgent($: EngineInterface, e: RenderInput<'ToolUse'>) {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const call = e.props as Call
+  const th = await themeOf($)
+  const inp = (call.input ?? {}) as Record<string, unknown>
+  const name = (typeof inp.name === 'string' && inp.name) || (typeof inp.subagent_type === 'string' && inp.subagent_type) || 'agent'
+  const what = typeof inp.description === 'string' ? inp.description : ''
+  // A background agent: its report arrives later as the agent's own message (group chat), and
+  // its end comes from turn.complete through AGENT_RUN.
+  const run = call.tool_use_id ? (await $.state.get({ ...AGENT_RUN, id: call.tool_use_id })).value : undefined
+  const background = !!run || (call.output as { isAsync?: boolean } | undefined)?.isAsync === true
+  const ended = run?.status === 'done' || run?.status === 'stopped'
+  const { glyph, color } = !background ? statusOf(call)
+    : run?.status === 'done' ? statusOf({ isRunning: false, isErrored: false, isInterrupted: false })
+    : run?.status === 'stopped' ? statusOf({ isRunning: false, isErrored: true, isInterrupted: true })
+    : { glyph: '↗', color: undefined }
+  const state = background ? (ended ? (run!.status === 'done' ? 'done' : 'stopped') : 'in background')
+    : call.isRunning ? 'working' : call.isInterrupted ? 'stopped' : call.isErrored ? 'failed' : 'done'
+  const report = call.isRunning || background ? '' : outputText(call.output).trim()
+  const cols = e.viewport?.columns ?? 80
+  const lines = report.split('\n')
+  const foldId = 'agent:' + (call.tool_use_id ?? '')
+  const isLong = lines.length > th.foldLines
+  const isOpen = isLong && ((await $.state.get({ ...MORE, id: foldId })).value ?? false)
+  const shown = isLong && !isOpen ? lines.slice(0, th.foldLines).join('\n') : report
+  const ink = agentInk(name)
+  return (
+    <Box flexDirection="column" paddingLeft={3}>
+      <Text>
+        <Text dimColor>{'↳ '}</Text>
+        <Text bold color={th.claude.label}>{th.claude.name}</Text>
+        <Text dimColor>{' → '}</Text>
+        <Text bold color={ink}>{name}</Text>
+        {what && <Text dimColor>{': ' + clip(what, Math.max(20, cols - name.length - 30))}</Text>}
+        <Text dimColor={!color} color={color}>{'  ' + glyph + ' ' + state}</Text>
+      </Text>
+      {report && (
+        <Box marginTop={1}>
+          <Box width={bubbleWidth(shown, `◆ ${name}`, cols - 3, th.claudeShare, chrome(th.claude, th.padding))} flexDirection="column" borderStyle={th.claude.shape === 'none' ? 'round' : th.claude.shape} borderColor={ink} paddingX={th.padding}>
+            <Text bold color={ink}>{'◆ ' + name}</Text>
+            <Text>{shown}</Text>
+            {isLong && <Button key={'more-' + foldId} plain dimColor label={isOpen ? '[ less ]' : `[ more · ${lines.length - th.foldLines} lines ]`} onPress={() => $.state.set({ ...MORE, id: foldId }, !isOpen)} />}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+// ---------- Welcome ----------
+// "Good morning, Pogi · 3rd session today · last one ended 2h ago", from a small log of
+// session starts and ends kept in the plugin store (the last 50).
+// Keyed by session id: session.start also fires on a reload, which must not count as a session.
+type SessionLog = { id?: string; start: number; end?: number }[]
+let sessionStart: number | undefined
+// A rough "how long ago": 45m, 2h, 3d.
+const ago = (ms: number) => { const m = Math.max(1, Math.round(ms / 60_000)); return m < 60 ? `${m}m` : m < 48 * 60 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d` }
+const ordinal = (n: number) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
+async function welcomeLine($: EngineInterface) {
+  if (offsetMin === undefined || sessionStart === undefined || opt<unknown>('welcome', true) === false) return ''
+  const log = ((await $.store.get('sessions').catch(() => undefined)) as SessionLog | undefined) ?? []
+  const day = (ms: number) => Math.floor((ms + offsetMin! * 60_000) / 86_400_000)
+  const h = new Date(sessionStart + offsetMin * 60_000).getUTCHours()
+  const hello = h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+  const th = await themeOf($)
+  const who = /^you$/i.test(th.user.name) ? '' : ', ' + th.user.name
+  const today = log.filter(s => day(s.start) === day(sessionStart!) && s.start <= sessionStart!).length
+  const last = log.filter(s => s.end !== undefined && s.end <= sessionStart!).sort((a, b) => b.end! - a.end!)[0]
+  const bits = [hello + who]
+  if (today > 1) bits.push(`${ordinal(today)} session today`)
+  if (last) bits.push(`last one ended ${ago(sessionStart - last.end!)} ago`)
+  return bits.join(' · ')
+}
+async function logSession($: EngineInterface, patch: (log: SessionLog) => SessionLog) {
+  const log = ((await $.store.get('sessions').catch(() => undefined)) as SessionLog | undefined) ?? []
+  await $.store.set('sessions', patch(log).slice(-50)).catch(() => {})
+}
+
 // ---------- Turn summary ----------
-type TurnSummary = { tools: number; failed: number; inTok: number; outTok: number; usd?: number; endMs: number }
+type TurnSummary = { tools: number; failed: number; inTok: number; outTok: number; usd?: number; endMs: number; agents?: number; agentTools?: number }
 const kTok = (n: number) => (n >= 1000 ? (n / 1000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(n))
 
 export const register: Register = (on, options) => {
@@ -1137,6 +1252,11 @@ export const register: Register = (on, options) => {
     const m = stdout.trim().match(/^([+-])(\d\d):?(\d\d)$/)
     if (m) offsetMin = (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]))
     await indexTranscript($).catch(() => {})
+    const known = (((await $.store.get('sessions').catch(() => undefined)) as SessionLog | undefined) ?? []).find(s => s.id === sid)
+    sessionStart = known?.start ?? (await $.clock.now())
+    if (!known) await logSession($, log => [...log, { id: sid, start: sessionStart! }])
+    // A reload places the same id again, which answers the row already standing.
+    if (opt<unknown>('welcome', true) !== false) await $.ui.place({ id: 'welcome' }).catch(() => undefined)
     return next(e)
   })
 
@@ -1159,6 +1279,8 @@ export const register: Register = (on, options) => {
   })
   on('session.end', async ($, e, next) => {
     await deleteSavedImages($).catch(() => {})
+    const end = await $.clock.now()
+    if (sessionStart !== undefined) await logSession($, log => log.map(s => (s.start === sessionStart ? { ...s, end } : s)))
     return next(e)
   })
   on('prompt.submit', async ($, e, next) => {
@@ -1166,11 +1288,14 @@ export const register: Register = (on, options) => {
     // (a skills listing, a queued notice) must not reset the running counts.
     if (!isYours(e.origin)) return next(e)
     await $.state.set(LAST_PROMPT, { key: textKey(e.text), read: false })
-    await $.state.set(TURN, { tools: 0, failed: 0, usdStart: (await $.session.usage().catch(() => undefined))?.cost?.usd ?? null })
+    turnAgents.clear()
+    await $.state.set(TURN, { tools: 0, failed: 0, agents: 0, agentTools: 0, usdStart: (await $.session.usage().catch(() => undefined))?.cost?.usd ?? null })
     await $.state.set(TURN_TOOLS, 0)
     return next(e)
   })
   on('turn.complete', async ($, e, next) => {
+    const callId = e.agentId ? agentCalls.get(e.agentId) : undefined
+    if (callId) await $.state.set({ ...AGENT_RUN, id: callId }, { status: e.isAborted ? 'stopped' : 'done' })
     if (!e.agentId) {
       const usd = (await $.session.usage().catch(() => undefined))?.cost?.usd
       const cur = (await $.state.get(TURN)).value ?? { tools: 0, failed: 0, usdStart: null }
@@ -1179,6 +1304,7 @@ export const register: Register = (on, options) => {
       const summary: TurnSummary = {
         tools: turnTools,
         failed: turnFailed,
+        ...(cur.agents ? { agents: cur.agents, agentTools: cur.agentTools ?? 0 } : {}),
         endMs: await $.clock.now(),
         inTok: u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0,
         outTok: u ? u.output_tokens : 0,
@@ -1199,12 +1325,21 @@ export const register: Register = (on, options) => {
   })
   on('tool.call', async ($, e, next) => {
     await $.state.set({ ...STAMPS, id: e.tool_use_id }, await $.clock.now())
-    if (e.agentId) return next(e) // count the main loop's calls only
+    if (e.agentId) { // an agent's own call: counted apart from the main loop's
+      const cur = (await $.state.get(TURN)).value
+      if (cur) await $.state.set(TURN, { ...cur, agentTools: (cur.agentTools ?? 0) + 1 })
+      return next(e)
+    }
     await markRead($)
     const cur = (await $.state.get(TURN)).value ?? { tools: 0, failed: 0, usdStart: null }
-    await $.state.set(TURN, { ...cur, tools: cur.tools + 1 })
+    await $.state.set(TURN, { ...cur, tools: cur.tools + 1, ...(isAgentTool(e.tool) ? { agents: (cur.agents ?? 0) + 1 } : {}) })
     await $.state.set(TURN_TOOLS, cur.tools + 1)
     const r = await next(e)
+    const launched = isAgentTool(e.tool) && 'result' in r ? (r.result as { isAsync?: boolean; agentId?: string } | undefined) : undefined
+    if (launched?.isAsync && launched.agentId) {
+      agentCalls.set(launched.agentId, e.tool_use_id)
+      await $.state.set({ ...AGENT_RUN, id: e.tool_use_id }, { status: 'background' })
+    }
     if ('deny' in r || r.isError) {
       const now = (await $.state.get(TURN)).value ?? { tools: 1, failed: 0, usdStart: null }
       await $.state.set(TURN, { ...now, failed: now.failed + 1 })
@@ -1223,7 +1358,44 @@ export const register: Register = (on, options) => {
       if (e.props.isExpanded) return next(e)
       const { Text, Box: B0 } = $.ui.resolve(e)
       if (await isFolded($, await msOf($, e.requestId, e.props.text))) return <B0 />
-      const who = e.props.from?.name ?? (e.props.task ? `task${e.props.task.status ? ' ' + e.props.task.status : ''}` : e.props.origin.kind)
+      // Group chat: a finished task is a one-line chip; an agent's, teammate's or session's
+      // message is its own bubble in its colour.
+      const cols = e.viewport?.columns ?? 80
+      if (e.props.task) {
+        const task = e.props.task
+        const info = task.id ? (await $.agent.list().catch(() => [])).find(a => a.id === task.id) : undefined
+        const who = e.props.from?.name ?? info?.teammateId?.split('@')[0] ?? info?.type ?? 'task'
+        const [glyph, ink, verb] = task.status === 'failed' ? ['✗', 'error', 'failed'] : task.status === 'killed' ? ['⊘', 'warning', 'stopped']
+          : task.status === 'completed' ? ['✓', 'success', 'finished'] : ['◌', undefined, task.status ?? 'update']
+        return (
+          <Text>
+            <Text color={ink}>{'   ' + glyph + ' '}</Text>
+            <Text bold color={agentInk(who)}>{who}</Text>
+            <Text dimColor>{` ${verb}${task.durationMs ? ' · ' + fmtDuration(task.durationMs) : ''}  ` + clip(e.props.text.split('\n')[0] ?? '', Math.max(20, cols - who.length - 30))}</Text>
+          </Text>
+        )
+      }
+      if (e.props.from?.name) {
+        const { Box: Bx } = $.ui.resolve(e)
+        const th = await themeOf($)
+        const name = e.props.from.name
+        const ink = agentInk(name)
+        const t = await timeOf($, e.requestId, e.props.text, th.preciseTime)
+        const lines = e.props.text.split('\n')
+        const shown = lines.length > th.foldLines ? lines.slice(0, th.foldLines).join('\n') + `\n… ${lines.length - th.foldLines} more lines (ctrl+o)` : e.props.text
+        return (
+          <Bx marginTop={th.spacing}>
+            <Bx width={bubbleWidth(shown, `◆ ${name}  ${t}`, cols, th.claudeShare, chrome(th.claude, th.padding))} flexDirection="column" borderStyle={th.claude.shape === 'none' ? 'round' : th.claude.shape} borderColor={ink} paddingX={th.padding}>
+              <Text>
+                <Text bold color={ink}>{'◆ ' + name}</Text>
+                {t && <Text dimColor>{'  ' + t}</Text>}
+              </Text>
+              <Text>{shown}</Text>
+            </Bx>
+          </Bx>
+        )
+      }
+      const who = e.props.origin.kind // anything else (a scheduled prompt, the SDK, a plugin's notice) stays one dim line
       return <Text dimColor>{'   ◦ ' + who + '  ' + clip(e.props.text.split('\n')[0] ?? '', Math.max(20, (e.viewport?.columns ?? 80) - who.length - 10))}</Text>
     }
     const { Box, Text, Button } = $.ui.resolve(e)
@@ -1405,6 +1577,7 @@ export const register: Register = (on, options) => {
     if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
     if (e.props.isExpanded) return next(e)
     if (await isFolded($, await msOf($, e.props.tool_use_id))) { const { Box: Bx } = $.ui.resolve(e); return <Bx /> }
+    if (isAgentTool(e.props.tool)) return drawAgent($, e)
     return drawRows($, $.ui.resolve(e), [await rowOf($, e.props, e.viewport?.columns)])
   })
   // Results: the opened row draws the output itself, so this stays hidden unless ctrl+o.
@@ -1460,6 +1633,7 @@ export const register: Register = (on, options) => {
     const bits = ['   · ' + e.props.word + ' ' + fmtDuration(e.props.durationMs)]
     if (t) {
       bits.push(`${t.tools} tool${t.tools === 1 ? '' : 's'}`)
+      if (t.agents) bits.push(`${t.agents} agent${t.agents === 1 ? '' : 's'} (${t.agentTools ?? 0} tool${t.agentTools === 1 ? '' : 's'})`)
       if (t.inTok || t.outTok) bits.push(`${kTok(t.inTok)} in / ${kTok(t.outTok)} out`)
       if (t.usd !== undefined && t.usd > 0) bits.push('$' + t.usd.toFixed(t.usd < 0.1 ? 3 : 2))
     }
@@ -1563,16 +1737,30 @@ export const register: Register = (on, options) => {
   })
 
   // Quick replies above the prompt once Claude has answered: one press sends it as you.
+  // The band above the prompt: who's working ("● Explore · find the config  ○ planner (done)"),
+  // then, once Claude has answered, quick replies.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!(await isOn($)) || e.props.hasSurvey || e.props.isWorking) return next(e)
+    if (!(await isOn($)) || e.props.hasSurvey) return next(e)
+    const strip = await agentStrip($)
     const raw = String(opt('quickReplies', 'Go ahead|Explain more|Shorter, please')).trim()
     const replies = raw.toLowerCase() === 'off' ? [] : raw.split('|').map(r => r.trim()).filter(Boolean).slice(0, 6)
-    if (!replies.length || !(await $.state.get(LAST_PROMPT)).value?.read) return next(e)
+    const showReplies = !e.props.isWorking && replies.length > 0 && !!(await $.state.get(LAST_PROMPT)).value?.read
+    if (!strip.length && !showReplies) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
-      <Box columnGap={1} flexWrap="wrap">
-        <Text dimColor>Quick reply</Text>
-        {replies.map((r, i) => <Button key={'qr' + i} plain dimColor label={`[ ${r} ]`} onPress={() => $.prompt.submit({ text: r, asUser: true })} />)}
+      <Box flexDirection="column">
+        {strip.length > 0 && (
+          <Box columnGap={2} flexWrap="wrap">
+            <Text dimColor>Agents</Text>
+            {strip.map(a => <Text><Text color={a.ink} dimColor={!a.ink}>{a.glyph + ' '}</Text><Text dimColor={a.dim}>{a.label}</Text></Text>)}
+          </Box>
+        )}
+        {showReplies && (
+          <Box columnGap={1} flexWrap="wrap">
+            <Text dimColor>Quick reply</Text>
+            {replies.map((r, i) => <Button key={'qr' + i} plain dimColor label={`[ ${r} ]`} onPress={() => $.prompt.submit({ text: r, asUser: true })} />)}
+          </Box>
+        )}
       </Box>
     )
   })
@@ -1645,6 +1833,73 @@ export const register: Register = (on, options) => {
         ))}
       </Box>
     )
+  })
+
+  // Every other command's output as a system card: the command in Claude's colour, [ copy ]
+  // and the time; a red frame and ✗ when it failed. undertone's own pins and gallery draw above.
+  on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
+    if (!(await isOn($)) || !e.props.text.trim()) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const th = await themeOf($)
+    const cols = e.viewport?.columns ?? 80
+    const bad = e.props.isErrored
+    const name = (bad ? '✗ ' : '') + '/' + e.props.command + (e.props.args.trim() ? ' ' + e.props.args.trim() : '')
+    const t = await timeOf($, e.requestId, undefined, false)
+    const widest = Math.max(strWidth(name) + 12, ...e.props.text.split('\n').map(strWidth), strWidth(t))
+    return (
+      <Box paddingLeft={2}>
+        <Box width={Math.min(cols - 4, widest + 4)} flexDirection="column" borderStyle="round" borderColor={bad ? 'error' : 'subtle'} paddingX={1}>
+          <Box justifyContent="space-between">
+            <Text bold color={bad ? 'error' : readableOn(undefined, th.claude.border)}>{name}</Text>
+            <Button key="copy-out" plain dimColor label="[ copy ]" onPress={p => copyText($, e.props.text, 'output', p.surface)} />
+          </Box>
+          <Text>{e.props.text}</Text>
+          {t && <Box justifyContent="flex-end"><Text dimColor>{t}</Text></Box>}
+        </Box>
+      </Box>
+    )
+  })
+
+  // Claude's question dialog under a "Claude asks" header. No frame: the dialog draws its rules
+  // at the full width, and a frame's columns would wrap them.
+  on('ui.render', { component: 'AskUserQuestion' }, async ($, e, next) => {
+    if (!(await isOn($)) || e.surface !== 'terminal') return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const th = await themeOf($)
+    const dialog = await next(e)
+    return (
+      <Box flexDirection="column" marginTop={th.spacing}>
+        <Text>
+          <Text bold color={th.claude.label}>{sideLabel(th.claude)}</Text>
+          <Text dimColor>{' asks'}</Text>
+        </Text>
+        {dialog}
+      </Box>
+    )
+  })
+
+  // The welcome row undertone places when a session starts.
+  on('ui.render', { component: 'Placed' }, async ($, e, next) => {
+    if (e.props.plugin !== 'undertone' || e.props.id !== 'welcome') return next(e)
+    const { Text } = $.ui.resolve(e)
+    const line = await welcomeLine($)
+    return line ? <Text dimColor>{'  ✻ ' + line}</Text> : next(e)
+  })
+
+  // Footer mode labels as pills in the theme's chip colour.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    if (!(await isOn($)) || !e.props.modes.length) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const th = await themeOf($)
+    return <Box columnGap={1}>{e.props.modes.map(m => <Text backgroundColor={th.chip} color={readableOn(th.chip, '#FFFFFF')}>{' ' + m + ' '}</Text>)}</Box>
+  })
+
+  // "(ctrl+b to run in background)" under a running tool, quieter: "ctrl+b · background", or none.
+  on('ui.render', { component: 'ToolProgress' }, async ($, e, next) => {
+    const how = String(opt('backgroundHint', 'compact'))
+    if (!(await isOn($)) || e.props.kind !== 'background_hint' || how === 'engine') return next(e)
+    const key = /^\(?(.+?) to run in background\)?$/.exec(e.props.hint.trim())?.[1]
+    return next({ ...e, props: { ...e.props, hint: how === 'hidden' ? '' : key ? `↧ ${key} · background` : e.props.hint } })
   })
 
   on('command.run', { command: 'undertone' }, async ($, e) => {

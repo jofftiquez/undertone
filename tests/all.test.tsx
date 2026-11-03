@@ -241,12 +241,12 @@ test('a failing tool call is counted, summarised in red and notified on a long t
   expect(runs.some(r => r.argv.join(' ').includes('osascript'))).toBe(true)
 })
 
-test('background notices shrink to one dim line', async ($, on) => {
+test('a finished background task is a one-line chip: ✓, who, finished, the first line', async ($, on) => {
   engine(on)
   await start($)
-  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: { text: 'Build finished\nmore detail', origin: { kind: 'task-notification' }, isExpanded: false, task: { status: 'completed' } } })
-  const t = await ui.find({ type: 'Text', text: /◦/ })
-  expect(t?.text).toContain('task completed')
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: { text: 'Build finished\nmore detail', origin: { kind: 'task-notification' }, isExpanded: false, task: { status: 'completed', durationMs: 122_000 } } })
+  const t = await ui.find({ type: 'Text', text: /✓/ })
+  expect(t?.text).toMatch(/✓ task finished · 2m\s+Build finished/)
   expect(t?.text).not.toContain('more detail')
   await ui.unmount()
 })

@@ -317,6 +317,23 @@
       "title": "Daytime hours",
       "description": "When the light version shows, as start-end hours (24h), e.g. 7-19",
       "default": "7-19"
+    },
+    "welcome": {
+      "type": "boolean",
+      "title": "Welcome line",
+      "description": "A line when a session starts: Good morning · 3rd session today · last one ended 2h ago",
+      "default": true
+    },
+    "backgroundHint": {
+      "type": "string",
+      "title": "Run-in-background hint",
+      "description": "The (ctrl+b to run in background) hint under a running tool. compact = ↧ ctrl+b · background, hidden, or engine = Claude Code's own",
+      "default": "compact",
+      "options": [
+        "compact",
+        "hidden",
+        "engine"
+      ]
     }
   }
 }
