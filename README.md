@@ -1,0 +1,174 @@
+<h1 align="center">undertone</h1>
+
+<p align="center"><strong>The conversation, without the noise.</strong></p>
+
+<p align="center">
+  A Claude Code mod that turns the transcript into a chat you can actually read:<br>
+  your messages and Claude's in bubbles, every tool call folded into a quiet one-line undertone.
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#what-you-get">Features</a> ·
+  <a href="#themes">Themes</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="#settings">Settings</a> ·
+  <a href="#develop">Develop</a>
+</p>
+
+![undertone: bubbles, timestamps, folded tool rows and a fitted table](docs/hero.png)
+
+---
+
+## Why
+
+Most of a Claude Code session is tool calls: reads, greps, shell commands, edits. They matter when something
+goes wrong, and they're noise the other 80% of the time. Meanwhile the two things you actually came for, what you
+asked and what Claude answered, get lost between them.
+
+undertone flips that around:
+
+- **The conversation is the signal.** Your prompts sit on the right, Claude's replies on the left, each in its own bubble with a timestamp.
+- **Tool calls are the undertone.** Each call is one dim line in plain words (`Ran gh pr view 12`, `Read src/app.ts`), and a run of calls folds into one (`Ran 3 commands, read 2 files`). Nothing is hidden: one click opens any of them, with the code highlighted.
+- **Failures still shout.** A failed call opens by itself and the turn's summary line counts it in red.
+
+## Install
+
+```
+/plugin marketplace add jofftiquez/undertone
+/plugin install undertone@undertone
+```
+
+Then try `/undertone setup` to pick a theme and layout with a live preview. `/undertone off` gives you Claude Code's own look back for the session; `/undertone on` brings undertone back.
+
+Works on **macOS, Linux and Windows**. Requires a Claude Code build with mod support.
+
+## What you get
+
+### Bubbles and time
+
+![Your bubbles on the right, Claude's on the left, each with its time; a summary line after every reply](docs/bubbles.png)
+
+- **Chat bubbles**: yours right-aligned, Claude's left, sized to the text, capped at a share of the width you choose.
+- **Timestamps in your local time**, down to the millisecond with the timezone (`7:32:27.946 PM UTC+8`), or short (`7:32 PM`). Times come from Claude Code's own transcript, so they're right for older messages and resumed sessions too.
+- **Day and pause dividers**: `── Today ──`, `── Yesterday ──`, `── 2h 10m later ──`.
+- **Long replies fold** behind `[ more · 23 lines ]`; **old turns fold** behind `── 42 earlier turns [ show ] ──`.
+
+### Tool calls, quietly
+
+![Tool calls as quiet one-line rows; a failed call opens by itself](docs/tool-rows.png)
+
+- One line per call, in plain words, with a status mark: `◌` running, `✓` done, `✗` failed (opens by itself), `⊘` interrupted.
+- `[ + ]` opens a call with its **highlighted** command, diff, file or output, and a `[ copy ]` button.
+- Grouped calls fold into one summary row.
+- File paths open a **side panel** with the file, highlighted, and an *Open in editor* button.
+- A **turn summary** after each reply: `· Baked 42s · 5 tools · 38k in / 1.2k out · $0.041 · 1 failed`.
+- While Claude works, the spinner counts tools live: `Sauteing · 3 tools…`
+
+### Tables that fit
+
+![A wide table fitted to the bubble, long cells wrapping inside their column](docs/tables.png)
+
+Claude Code lays tables out for the full terminal width, so inside anything narrower they break. undertone draws
+tables itself, fitted to the bubble: columns keep their natural width when everything fits, otherwise long cells wrap
+inside their column. Wide characters (CJK, emoji, `★`) are measured as two cells, alignment (`:---:`, `---:`) is
+honoured, and **bold**, `code` and links keep their style. Styles: `rules`, `box` or `minimal`.
+
+### Small things that add up
+
+- **Copy buttons** on every reply, code block, quote and table; in fullscreen they appear only when you point at the bubble.
+- **Pins**: `☆` on any bubble, then `/undertone-pins` lists what you pinned, with times. Pins survive restarts.
+- **Export**: `/undertone-export` writes the conversation to Markdown with every timestamp.
+- **Pasted images** become chips (`🖼 Image #3`) that open in your image viewer.
+- **A notification** when a long turn finishes (macOS Notification Center, `notify-send`, Windows toast), so you can look away.
+- **A context meter** under the input: `ctx 45%`, then `▲`, then `⚠ compact soon`.
+
+## Themes
+
+The same conversation in three of them: `default`, `dracula`, and `messenger` (filled):
+
+<table>
+  <tr>
+    <td><img src="docs/hero.png" alt="default theme"></td>
+    <td><img src="docs/theme-dracula.png" alt="dracula theme"></td>
+    <td><img src="docs/theme-messenger.png" alt="messenger theme, filled bubbles"></td>
+  </tr>
+  <tr><td align="center"><code>default</code></td><td align="center"><code>dracula</code></td><td align="center"><code>messenger</code></td></tr>
+</table>
+
+![The theme gallery from /undertone-theme](docs/themes.png)
+
+**39 presets**, every one previewable with `/undertone-theme` and switchable on the spot:
+
+| Group | Presets |
+|---|---|
+| Shapes, in your terminal's own colours | `default` (rounded) · `sharp` · `double` · `bold` · `dashed` · `minimal` (a left bar) · `terminal` (ASCII, one column) · `mono` |
+| Filled, like a messaging app | `messenger` · `messenger-light` |
+| Inspired by popular editor themes | `dracula` · `catppuccin-mocha` · `catppuccin-macchiato` · `catppuccin-latte` · `tokyo-night` · `nord` · `gruvbox` · `gruvbox-light` · `solarized-dark` · `solarized-light` · `one-dark` · `monokai` · `github-dark` · `github-light` · `rose-pine` · `rose-pine-dawn` · `everforest` · `kanagawa` · `ayu` · `night-owl` · `palenight` · `synthwave-84` · `cobalt2` · `horizon` · `material` · `tomorrow-night` |
+| undertone originals | `ocean` · `forest` · `sunset` · `random` (a dark preset each load) |
+
+Then fine-tune any part in `/config → undertone`: **bubble style** (framed or filled, for any theme), **shape** per
+side (rounded, sharp, double, bold, dashed, ascii, bar, none), **colours** (border, fill, text; hex, `rgb()`,
+`ansi256()` or Claude Code's colour names), **labels and icons**, **padding**, **spacing**, **alignment** and the
+**divider** character. Text on filled bubbles is picked to stay readable, and a mistyped colour is ignored instead of
+breaking the bubble.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/undertone` | Help |
+| `/undertone setup` | Pick theme, bubble style, shapes, padding, spacing, alignment, buttons and time format, with a live preview |
+| `/undertone off` · `/undertone on` | Claude Code's own look for this session, and back |
+| `/undertone-theme [name]` | Theme gallery, or switch theme; `reset` returns to the `/config` choice |
+| `/undertone-pins` | Your pinned messages, in time order |
+| `/undertone-export [path]` | Save the chat as Markdown with timestamps (default: `~/Downloads`) |
+| `/undertone-doctor` | What the timestamp index holds, for bug reports |
+
+## Settings
+
+Everything is in `/config → undertone`. The ones you'll reach for first:
+
+| Setting | Default | |
+|---|---|---|
+| Theme | `default` | Any preset above, or `random` |
+| Bubble style | `preset` | `framed`, `filled` |
+| Your / Claude's bubble shape | `preset` | `rounded`, `sharp`, `double`, `bold`, `dashed`, `ascii`, `bar`, `none` |
+| Bubble buttons | `hover` | `inline` to always show ☆ and copy |
+| Table style | `rules` | `box`, `minimal` |
+| Time format | `precise` | `short` |
+| Keep last N turns unfolded | `10` | `0` never folds |
+| Fold replies longer than | `15` lines | |
+| Gap divider after | `60` minutes | |
+| System notification for long turns | on, after `30` s | |
+| Enabled | on | off = Claude Code's own look |
+
+## Privacy and side effects
+
+- **No network.** Nothing leaves your machine.
+- **Programs it runs**, each with a timeout (5 s, 15 s on Windows): the clipboard (`pbcopy`, `wl-copy`/`xclip`/`xsel`, PowerShell), your OS's file opener when you click an image or *Open in editor*, the notifier for long turns, `tail`/`head` (or PowerShell) to read the session transcript in pieces, and `base64` (or PowerShell) to save pasted images.
+- **Pasted images** are copied to your temp folder so they can open, and **deleted when the session ends**.
+- On Windows, PowerShell runs by its full path (`%SystemRoot%\System32\…`), non-interactive, and receives its input as ASCII-escaped JSON.
+
+## Develop
+
+Clone the repo and point Claude Code at it; every save reloads in all open sessions:
+
+```bash
+git clone https://github.com/jofftiquez/undertone ~/Documents/workspace/undertone
+echo 'export CLAUDE_CODE_PLUGIN_DIRS="$HOME/Documents/workspace/undertone"' >> ~/.zshrc
+```
+
+Don't also install the published copy on the same machine, or both will draw every row.
+
+```bash
+claude plugin validate .   # what the engine will load, and what it would refuse
+claude plugin test .       # 178 tests: every feature, every theme in every style, tables at 4 widths
+```
+
+The code lives in `hooks/register.tsx`; the state contract in `types/index.d.ts`.
+
+## License
+
+[MIT](LICENSE) © Joff Tiquez. Theme presets use the accent colours of the editor themes they are named after, all
+of which are open source; undertone is not affiliated with any of them.

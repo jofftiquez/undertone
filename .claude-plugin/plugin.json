@@ -1,0 +1,298 @@
+{
+  "name": "undertone",
+  "version": "0.8.0",
+  "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
+  "author": {
+    "name": "Joff Tiquez",
+    "url": "https://github.com/jofftiquez"
+  },
+  "homepage": "https://github.com/jofftiquez/undertone",
+  "repository": "https://github.com/jofftiquez/undertone",
+  "license": "MIT",
+  "keywords": [
+    "chat",
+    "bubbles",
+    "timestamps",
+    "tool-calls",
+    "themes",
+    "tables",
+    "declutter",
+    "terminal"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Draw the conversation with undertone. Off = Claude Code's own look (/undertone off does it for one session).",
+      "default": true
+    },
+    "theme": {
+      "type": "string",
+      "title": "Theme",
+      "description": "Preset look (see /undertone-theme for a gallery). Every setting below overrides one part of it. random picks a dark preset each time undertone loads.",
+      "default": "default",
+      "options": [
+        "default",
+        "sharp",
+        "double",
+        "bold",
+        "dashed",
+        "minimal",
+        "terminal",
+        "mono",
+        "messenger",
+        "messenger-light",
+        "dracula",
+        "catppuccin-mocha",
+        "catppuccin-macchiato",
+        "catppuccin-latte",
+        "tokyo-night",
+        "nord",
+        "gruvbox",
+        "gruvbox-light",
+        "solarized-dark",
+        "solarized-light",
+        "one-dark",
+        "monokai",
+        "github-dark",
+        "github-light",
+        "rose-pine",
+        "rose-pine-dawn",
+        "everforest",
+        "kanagawa",
+        "ayu",
+        "night-owl",
+        "palenight",
+        "synthwave-84",
+        "cobalt2",
+        "horizon",
+        "material",
+        "tomorrow-night",
+        "ocean",
+        "forest",
+        "sunset",
+        "random"
+      ]
+    },
+    "bubbleStyle": {
+      "type": "string",
+      "title": "Bubble style",
+      "description": "framed = outlined bubbles; filled = solid chat-app bubbles in the theme's colours; preset = as the theme defines",
+      "default": "preset",
+      "options": [
+        "preset",
+        "framed",
+        "filled"
+      ]
+    },
+    "userShape": {
+      "type": "string",
+      "title": "Your bubble shape",
+      "description": "rounded, sharp (square corners), double, bold, dashed, ascii (+--+), bar (left line only), none",
+      "default": "preset",
+      "options": [
+        "preset",
+        "rounded",
+        "sharp",
+        "double",
+        "bold",
+        "dashed",
+        "ascii",
+        "bar",
+        "none"
+      ]
+    },
+    "claudeShape": {
+      "type": "string",
+      "title": "Claude bubble shape",
+      "description": "Same choices as your bubble",
+      "default": "preset",
+      "options": [
+        "preset",
+        "rounded",
+        "sharp",
+        "double",
+        "bold",
+        "dashed",
+        "ascii",
+        "bar",
+        "none"
+      ]
+    },
+    "userColor": {
+      "type": "string",
+      "title": "Your bubble colour",
+      "description": "Override: a theme key (suggestion, claude, success…) or hex like #4FC3F7; empty = theme",
+      "default": ""
+    },
+    "claudeColor": {
+      "type": "string",
+      "title": "Claude bubble colour",
+      "description": "Override: a theme key or hex; empty = theme",
+      "default": ""
+    },
+    "userFill": {
+      "type": "string",
+      "title": "Your bubble fill",
+      "description": "Background colour (theme key or hex, e.g. #1F6FEB); 'none' removes the theme's fill; empty = theme",
+      "default": ""
+    },
+    "claudeFill": {
+      "type": "string",
+      "title": "Claude bubble fill",
+      "description": "Background colour; 'none' removes the theme's fill; empty = theme",
+      "default": ""
+    },
+    "userTextColor": {
+      "type": "string",
+      "title": "Your text colour",
+      "description": "Message text colour inside your bubble; empty = theme",
+      "default": ""
+    },
+    "claudeTextColor": {
+      "type": "string",
+      "title": "Claude text colour",
+      "description": "Header text colour inside Claude's bubble; empty = theme",
+      "default": ""
+    },
+    "userLabel": {
+      "type": "string",
+      "title": "Your label",
+      "description": "Name shown on your bubbles (e.g. Me, Joff); empty = theme",
+      "default": ""
+    },
+    "claudeLabel": {
+      "type": "string",
+      "title": "Claude label",
+      "description": "Name shown on Claude's bubbles; empty = theme",
+      "default": ""
+    },
+    "userIcon": {
+      "type": "string",
+      "title": "Your icon",
+      "description": "Shown before your label, e.g. › ● ◆ ; empty = theme",
+      "default": ""
+    },
+    "claudeIcon": {
+      "type": "string",
+      "title": "Claude icon",
+      "description": "Shown before Claude's label, e.g. ✻ ◇ ; empty = theme",
+      "default": ""
+    },
+    "padding": {
+      "type": "string",
+      "title": "Bubble padding",
+      "description": "Space inside bubbles",
+      "default": "preset",
+      "options": [
+        "preset",
+        "compact",
+        "normal",
+        "roomy"
+      ]
+    },
+    "spacing": {
+      "type": "string",
+      "title": "Spacing between bubbles",
+      "description": "Blank lines between messages",
+      "default": "preset",
+      "options": [
+        "preset",
+        "tight",
+        "normal",
+        "airy"
+      ]
+    },
+    "userAlign": {
+      "type": "string",
+      "title": "Your bubble alignment",
+      "description": "right = chat app; left = one column like a log",
+      "default": "preset",
+      "options": [
+        "preset",
+        "right",
+        "left"
+      ]
+    },
+    "dividerChar": {
+      "type": "string",
+      "title": "Divider character",
+      "description": "Used in day / gap dividers, e.g. ─ · ═ ≈ -; empty = theme",
+      "default": ""
+    },
+    "userBubbleWidth": {
+      "type": "number",
+      "title": "Your bubble max width (%)",
+      "description": "20–100",
+      "default": 70
+    },
+    "claudeBubbleWidth": {
+      "type": "number",
+      "title": "Claude bubble max width (%)",
+      "description": "20–100",
+      "default": 90
+    },
+    "foldLines": {
+      "type": "number",
+      "title": "Fold replies longer than (lines)",
+      "description": "Longer replies show [ more ]",
+      "default": 15
+    },
+    "gapMinutes": {
+      "type": "number",
+      "title": "Gap divider after (minutes)",
+      "description": "A pause this long between prompts gets a 'later' divider",
+      "default": 60
+    },
+    "timeFormat": {
+      "type": "string",
+      "title": "Bubble time format",
+      "description": "precise = 4:47:12.345 PM UTC+8, short = 4:47 PM",
+      "default": "precise",
+      "options": [
+        "precise",
+        "short"
+      ]
+    },
+    "foldTurns": {
+      "type": "number",
+      "title": "Keep last N turns unfolded",
+      "description": "Older turns collapse behind [ show ]; 0 = never fold",
+      "default": 10
+    },
+    "notify": {
+      "type": "boolean",
+      "title": "System notification for long turns",
+      "description": "OS notification (macOS, Linux notify-send, Windows toast) when a long turn finishes",
+      "default": true
+    },
+    "notifyAfterSeconds": {
+      "type": "number",
+      "title": "Long turn after (seconds)",
+      "description": "Toast + notification when a turn runs longer than this",
+      "default": 30
+    },
+    "buttons": {
+      "type": "string",
+      "title": "Bubble buttons (☆, copy)",
+      "description": "hover: hidden until the pointer is over the bubble (needs the fullscreen layout, which reports the mouse; elsewhere they show inline). inline: always shown.",
+      "default": "hover",
+      "options": [
+        "hover",
+        "inline"
+      ]
+    },
+    "tableStyle": {
+      "type": "string",
+      "title": "Table style",
+      "description": "How tables in Claude's replies draw, fitted to the bubble (long cells wrap inside their column). rules: a header rule and dotted lines between rows. box: a full grid. minimal: a header rule only.",
+      "default": "rules",
+      "options": [
+        "rules",
+        "box",
+        "minimal"
+      ]
+    }
+  }
+}

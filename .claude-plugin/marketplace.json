@@ -1,0 +1,14 @@
+{
+  "name": "undertone",
+  "owner": {
+    "name": "Joff Tiquez",
+    "url": "https://github.com/jofftiquez"
+  },
+  "plugins": [
+    {
+      "name": "undertone",
+      "source": "./",
+      "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away."
+    }
+  ]
+}
