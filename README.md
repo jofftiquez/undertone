@@ -68,8 +68,8 @@ Works on **macOS, Linux and Windows**. Requires a Claude Code build with mod sup
   | `card` (default) | `full` | `marks` | `bar` |
   |---|---|---|---|
   | a rounded frame headed by the file and its counts | the changed lines tinted across the width, no frame | no tint, only `+` and `−` coloured | no tint, a coloured `▌` before each changed line |
+  | ![card](docs/diff-card.png) | ![full](docs/diff-full.png) | ![marks](docs/diff-marks.png) | ![bar](docs/diff-bar.png) |
 
-  ![An opened edit as a diff card: src/app.ts +1 −1 over the changed line](docs/diff-card.png)
 
 - File paths open a **side panel** with the file, highlighted, and an *Open in editor* button that always opens a text editor.
 - A **turn summary** after each reply: `· Baked 42s · 5 tools · 38k in / 1.2k out · $0.041 · 1 failed`.
