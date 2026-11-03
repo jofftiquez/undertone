@@ -1387,9 +1387,10 @@ function ganttRows(g: Gantt, room: number): Seg2[][] | undefined {
   for (const r of g.rows) {
     if ('section' in r) { out.push([{ text: clip(r.section, labelW + 2), role: 'dim' }]); continue }
     const name = strWidth(r.name) > labelW ? clip(r.name, labelW) : r.name + ' '.repeat(labelW - strWidth(r.name))
-    const from = Math.floor(at(r.start))
+    // every bar stays on the axis: a milestone or task at the very end draws in the last cell
+    const from = Math.min(barRoom - 1, Math.floor(at(r.start)))
     const ink = r.tag === 'done' ? 'ok' : r.tag === 'active' ? 'note' : r.tag === 'crit' ? 'warn' : 'accent'
-    const bar = r.tag === 'milestone' ? '◆' : barOf(Math.max(0.5, at(r.end) - from))
+    const bar = r.tag === 'milestone' ? '◆' : barOf(Math.min(barRoom - from, Math.max(0.5, at(r.end) - from)))
     out.push([{ text: name + '  ' + ' '.repeat(from) }, { text: bar, role: ink }])
   }
   return out

@@ -94,3 +94,14 @@ test('gantt: a bar per task on a shared date axis, sections, done in green and c
   expect((await all(ui, 'Code')).length).toBe(0)
   await ui.unmount()
 })
+
+test('gantt: a milestone at the very end stays on its row, inside the bubble', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, '```mermaid\ngantt\n  dateFormat YYYY-MM-DD\n  A :a1, 2026-11-01, 3d\n  Ship :milestone, 2026-11-04, 0d\n```', 80)
+  const bubble = (await all(ui, 'Box')).find(b => b.key === 'bubble')
+  const row = (await all(ui, 'Text')).find(t => /^Ship +◆$/.test(t.text))
+  expect(row).toBeDefined()
+  expect(row.text.length).toBeLessThanOrEqual(bubble.props.width - 4)
+  await ui.unmount()
+})
