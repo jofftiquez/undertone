@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
   "author": {
     "name": "Joff Tiquez",
@@ -395,10 +395,13 @@
     "diffStyle": {
       "type": "string",
       "title": "Diff style",
-      "description": "How an opened edit shows its change: card = in a rounded frame headed by the file and +/- counts; plain = the diff alone",
+      "description": "How an opened edit shows its change: card = in a rounded frame headed by the file and +/- counts; full = the lines tinted across the width, no frame; marks = no tint, only + and − coloured; bar = no tint, a coloured ▌ before each changed line",
       "default": "card",
       "options": [
         "card",
+        "full",
+        "marks",
+        "bar",
         "plain"
       ]
     },

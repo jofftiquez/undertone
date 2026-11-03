@@ -63,7 +63,11 @@ Works on **macOS, Linux and Windows**. Requires a Claude Code build with mod sup
 - One line per call, in plain words, with a status mark: `◌` running, `✓` done, `✗` failed (opens by itself), `⊘` interrupted.
 - `[ + ]` opens a call with its **highlighted** command, diff, file or output, and a `[ copy ]` button.
 - Grouped calls fold into one summary row.
-- An opened edit is a **diff card**: the file and its `+N −M` counts over the change, in a rounded frame (*Diff style* `plain` drops the frame).
+- An opened edit is a **diff card**: the file and its `+N −M` counts over the change, in a rounded frame. *Diff style* picks the look:
+
+  | `card` (default) | `full` | `marks` | `bar` |
+  |---|---|---|---|
+  | a rounded frame headed by the file and its counts | the changed lines tinted across the width, no frame | no tint, only `+` and `−` coloured | no tint, a coloured `▌` before each changed line |
 
   ![An opened edit as a diff card: src/app.ts +1 −1 over the changed line](docs/diff-card.png)
 
@@ -139,6 +143,13 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
     <td><img src="docs/mindmap-journey.png" alt="A mindmap of undertone beside a user journey with a 5/5 and a 2/5 score bar"></td>
   </tr>
   <tr>
+    <td><img src="docs/quadrant.png" alt="A quadrant chart: Do it now, Plan it, Skip and Maybe later, with two numbered features plotted"></td>
+    <td><img src="docs/c4.png" alt="A C4 context diagram: Developer, Claude Code and GitHub as boxes, with chats with and opens PRs on"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/timeline-sankey.png" alt="A timeline of undertone releases beside a Sankey of visitors to docs, install and daily use"></td>
+  </tr>
+  <tr>
     <td colspan="2"><img src="docs/gantt.png" alt="A gantt chart: tasks as bars on a date axis, done in green, active in amber, a milestone diamond at the end"></td>
   </tr>
 </table>
@@ -147,10 +158,11 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 - **Flowcharts** (`graph LR` / `TD`): a straight chain as boxes joined by arrows, with edge labels; branches and loops as a tree, `↺` where it loops back.
 - **State diagrams** draw like flowcharts, `●` where they start and `◉` where they end; **class and ER diagrams** as a box per class or entity with its members, and the relations under them in words (`Duck ──▷ Animal  inherits`, `CUSTOMER ──▶ ORDER  places (one to many)`).
 - **Mindmaps** as a tree from the root, each branch in its own colour; **user journeys** as a score bar per task, red to green, with who took part; **git graphs** as lanes, `├─╮` where a branch starts and `●─╯` where it merges, with commit ids and tags.
+- **Quadrant charts** as a grid with each quadrant's label and the points numbered, a legend under it; **timelines** as periods on a line with their events; **Sankey** flows as bars sized by value; **C4** diagrams as people and systems in boxes (their kind and description inside) with the relations in words.
 - **Gantt charts**: a bar per task on a shared date axis, with sections; done tasks green, active amber, critical red, milestones `◆` (`YYYY-MM-DD` dates; durations in `d`, `h`, `w`, or `after <task>`).
 - **Sequence diagrams**: a box per participant over its lifeline, each message an arrow with its text above, replies dashed, notes and `loop`/`alt` labels as dim lines.
 - **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run. A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
-- `[ source ]`, `[ art ]` and `[ png ]` on each. Other mermaid kinds (quadrant charts, timelines, Sankey, C4), and a block still streaming, stay code.
+- `[ source ]`, `[ art ]` and `[ png ]` on each. Requirement and block diagrams, and a block still streaming, stay code.
 - So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
 
 ### Math, footnotes and copying
@@ -271,7 +283,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Task list style | `brackets` | `ticks`, `box`, `progress` |
 | Tell Claude about pictures | on | the note on your prompts |
 | Math as pictures | on | needs `ratex-render`; off = text |
-| Diff style | `card` | `plain` |
+| Diff style | `card` | `full`, `marks`, `bar` |
 | Pictures inline | on | |
 | Desktop app wallpaper | `off` | `theme` |
 | System notification for long turns | on, after `30` s | |
@@ -297,7 +309,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 284 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 291 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
