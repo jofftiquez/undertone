@@ -1,4 +1,4 @@
-import type { ElementTable, EngineInterface, Register } from 'claude-code'
+import type { ElementTable, EngineInterface, Register, RenderSurface } from 'claude-code'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const STAMPS = { plugin: 'undertone', key: 'stamps' } as const
@@ -427,7 +427,7 @@ function indexTranscript($: EngineInterface) {
 
 // ---------- OS layer ----------
 // Env vars are read directly (no shell). PowerShell runs by its full path (no PATH hijack),
-// -NonInteractive and -STA (the clipboard needs STA). Windows helpers read ASCII-only JSON
+// -NonInteractive and -STA. Windows helpers read ASCII-only JSON
 // on stdin (\u escapes), so any text survives whatever code page the console uses.
 // Every helper has a timeout: 5 s, 15 s on Windows (PowerShell starts slowly).
 let isWindows: boolean | undefined
@@ -605,7 +605,7 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
               ) : (
                 <Box flexDirection="column">
                   <Code source={b.source} language={b.language} path={b.path} startLine={b.startLine} format={b.format} wrap="truncate-end" />
-                  <Button key={'copy-' + n + '-' + k} plain dimColor label="[ copy ]" onPress={() => copyText($, b.full, 'code')} />
+                  <Button key={'copy-' + n + '-' + k} plain dimColor label="[ copy ]" onPress={p => copyText($, b.full, 'code', p.surface)} />
                 </Box>
               )}
             </Box>
@@ -616,12 +616,11 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
   )
 }
 
-// Copies text to the OS clipboard: pbcopy (macOS), wl-copy / xclip / xsel (Linux), Set-Clipboard (Windows).
-async function copyText($: EngineInterface, text: string, what: string) {
-  const r = (await windows($))
-    ? await ps($, `Set-Clipboard -Value $p.text`, { text }).catch(() => ({ exitCode: 1 }))
-    : await run($, ['sh', '-c', 'if command -v pbcopy >/dev/null; then pbcopy; elif [ -n "$WAYLAND_DISPLAY" ] && command -v wl-copy >/dev/null; then wl-copy; elif command -v xclip >/dev/null; then xclip -selection clipboard; elif command -v xsel >/dev/null; then xsel --clipboard --input; else exit 127; fi'], text).catch(() => ({ exitCode: 1 }))
-  $.ui.toast(r.exitCode === 0 ? `Copied ${what}` : r.exitCode === 127 ? 'Copy failed: install wl-clipboard, xclip or xsel' : 'Copy failed')
+// Copies text through Claude Code's own clipboard: the OS tool where there is one, else the
+// terminal (OSC 52), so it also works over SSH. `surface` is the one the button was pressed on.
+async function copyText($: EngineInterface, text: string, what: string, surface?: RenderSurface) {
+  const r = await $.ui.copy({ text, surface }).catch(() => ({ isCopied: false }))
+  $.ui.toast(r.isCopied ? `Copied ${what}` : 'Copy failed')
 }
 
 // ---------- Tables ----------
@@ -682,6 +681,9 @@ function wrapSegs(segs: Seg[], width: number): Seg[][] {
 }
 const segsWidth = (segs: Seg[]) => segs.reduce((n, s) => n + strWidth(s.text), 0)
 const plainCell = (cell: string) => cellWords(cell).map(s => s.text).join('')
+// The table as tab-separated plain text, markup stripped: Slack and spreadsheets (Excel, Google
+// Sheets, Numbers) paste it as a real table. ponytail: link URLs drop, as Slack drops them too.
+const tableCells = (t: Table) => [t.head, ...t.rows].map(r => r.map(c => plainCell(c.replace(/<br\s*\/?>/gi, ' ')).replace(/\s+/g, ' ').trim()).join('\t')).join('\n')
 
 type Table = { head: string[]; align: ('left' | 'center' | 'right')[]; rows: string[][] }
 function splitRow(line: string) {
@@ -1207,7 +1209,7 @@ export const register: Register = (on, options) => {
             {reveal(Box, hov, scope, 'head-reveal', (
               <Box columnGap={1}>
                 {!(hov && pinned) && star}
-                <Button key="copy-all" plain dimColor label="[ copy ]" onPress={() => copyText($, text, 'message')} />
+                <Button key="copy-all" plain dimColor label="[ copy ]" onPress={p => copyText($, text, 'message', p.surface)} />
               </Box>
             ))}
           </Box>
@@ -1218,7 +1220,12 @@ export const register: Register = (on, options) => {
               if (!table) return <Markdown text={part.md} />
               const room = w - chrome(th.claude, th.padding)
               const lines = layoutTable(table, room, th.tableStyle)
-              const copy = <Button key={'copy-' + i} plain dimColor label="[ copy table ]" onPress={() => copyText($, part.copy, 'table')} />
+              const copy = (
+                <Box columnGap={1}>
+                  <Button key={'cells-' + i} plain dimColor label="[ copy as cells ]" onPress={p => copyText($, tableCells(table), 'table as cells', p.surface)} />
+                  <Button key={'copy-' + i} plain dimColor label="[ copy table ]" onPress={p => copyText($, part.copy, 'table', p.surface)} />
+                </Box>
+              )
               const body = (
                 <Box flexDirection="column" marginY={1}>
                   {lines.map(line => (
@@ -1233,7 +1240,7 @@ export const register: Register = (on, options) => {
                 ? <Box flexDirection="column">{body}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box>
                 : <Box flexDirection="column"><Box justifyContent="flex-end">{copy}</Box>{body}</Box>
             }
-            const copy = <Button key={'copy-' + i} plain dimColor label={part.kind === 'code' ? '[ copy code ]' : '[ copy quote ]'} onPress={() => copyText($, part.copy, part.kind === 'code' ? 'code' : 'quote')} />
+            const copy = <Button key={'copy-' + i} plain dimColor label={part.kind === 'code' ? '[ copy code ]' : '[ copy quote ]'} onPress={p => copyText($, part.copy, part.kind === 'code' ? 'code' : 'quote', p.surface)} />
             return hov ? (
               <Box flexDirection="column">
                 <Markdown text={part.md} />
@@ -1412,7 +1419,7 @@ export const register: Register = (on, options) => {
     const buttons = (
       <Box columnGap={1}>
         <Button key="open-ext" label="Open in editor" onPress={() => openFile($, path)} />
-        <Button key="copy-path" label="Copy path" onPress={() => copyText($, path, 'path')} />
+        <Button key="copy-path" label="Copy path" onPress={p => copyText($, path, 'path', p.surface)} />
         <Button key="close" label="Close" onPress={() => $.ui.close({ id: FILE_PANE })} />
       </Box>
     )

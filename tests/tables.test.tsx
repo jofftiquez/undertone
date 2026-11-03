@@ -20,6 +20,7 @@ function base(on: any, runs: string[] = []) {
   on('session.cwd', () => ({ value: '/w' }))
   on('process.run', (_: any, e: any) => { runs.push(e.stdin ?? e.init?.stdin ?? ''); return { value: { exitCode: 0, stdout: '', stderr: '' } } })
   on('ui.toast', () => ({ value: undefined }))
+  on('ui.copy', (_: any, e: any) => { runs.push(e.text); return { value: { isCopied: true } } })
 }
 async function tableLines($: any, columns: number) {
   const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'AssistantMessage', requestId: 'r', props: { text: REPLY, isFirstOfReply: true }, viewport: { columns, rows: 50 } })
@@ -73,6 +74,16 @@ test('[ copy table ] copies the original markdown', async ($, on) => {
   const key = (await ui.findAll({ type: 'Button' })).find((b: any) => String(b.props.label).includes('copy table'))!.key!
   await $.ui.press({ plugin: P, key, requestId: 'r' })
   expect(runs.at(-1)).toBe(TABLE)
+  await ui.unmount()
+})
+
+test('[ copy as cells ] copies tab-separated plain text for Slack and spreadsheets', async ($, on) => {
+  const runs: string[] = []
+  base(on, runs)
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'AssistantMessage', requestId: 'c', props: { text: '| Name | Notes |\n|---|---|\n| **Ann** | see [docs](https://x.y)<br>and `code` |\n| Bo | a \\| b |', isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
+  const key = (await ui.findAll({ type: 'Button' })).find((b: any) => String(b.props.label).includes('copy as cells'))!.key!
+  await $.ui.press({ plugin: P, key, requestId: 'c' })
+  expect(runs.at(-1)).toBe('Name\tNotes\nAnn\tsee docs and code\nBo\ta | b')
   await ui.unmount()
 })
 

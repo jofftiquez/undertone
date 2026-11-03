@@ -35,6 +35,8 @@ function engine(on: any, opts: { transcript?: string; cwd?: string } = {}) {
   on('fs.stat', () => ({ value: { kind: 'file', size: (opts.transcript ?? '').length, mtimeMs: 0, isLink: false } }))
   on('fs.write', (_: any, e: any) => { writes[e.path] = e.text; return { value: undefined } })
   on('ui.toast', (_: any, e: any) => { toasts.push(typeof e === 'string' ? e : e.text); return { value: undefined } })
+  const copies: string[] = []
+  on('ui.copy', (_: any, e: any) => { copies.push(e.text); return { value: { isCopied: true } } })
   on('process.run', (_: any, e: any) => {
     const argv: string[] = e.argv ?? e[0] ?? []
     const stdin: string | undefined = e.stdin ?? e.init?.stdin
@@ -54,7 +56,7 @@ function engine(on: any, opts: { transcript?: string; cwd?: string } = {}) {
     else if (script.includes('HOME')) stdout = '/home/u'
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  return { runs, toasts, writes }
+  return { runs, toasts, writes, copies }
 }
 const start = ($: any) => $.session.start({ cwd: '/work/proj', surface: 'terminal', isInteractive: true })
 const prompt = (requestId: string, text: string) => ({
@@ -143,15 +145,15 @@ test('with foldTurns=2 the oldest turn folds behind a marker', { options: { fold
 const LONG = ['Intro', '', '> a quote', '> line two', '', '```ts', 'const x = 1', '```', ...Array.from({ length: 20 }, (_, i) => `line ${i + 1}`)].join('\n')
 
 test('copy buttons copy the whole reply, the code only, the quote only', async ($, on) => {
-  const { runs, toasts } = engine(on)
+  const { copies, toasts } = engine(on)
   await start($)
   const ui = await $.ui.mount(reply('r1', LONG))
   await $.ui.press({ plugin: P, key: 'copy-all', requestId: 'r1' })
-  expect(runs.at(-1)?.stdin).toBe(LONG)
+  expect(copies.at(-1)).toBe(LONG)
   await $.ui.press({ plugin: P, key: 'copy-1', requestId: 'r1' }) // quote is part 1
-  expect(runs.at(-1)?.stdin).toBe('a quote\nline two')
+  expect(copies.at(-1)).toBe('a quote\nline two')
   await $.ui.press({ plugin: P, key: 'copy-2', requestId: 'r1' }) // code is part 2 (the blank line between is not a part)
-  expect(runs.at(-1)?.stdin).toBe('const x = 1')
+  expect(copies.at(-1)).toBe('const x = 1')
   expect(toasts).toContain('Copied code')
   await ui.unmount()
 })
@@ -257,8 +259,8 @@ test('/undertone-export writes Markdown with timestamps', async ($, on) => {
 
 
 // ---------- Windows: every OS call goes through PowerShell, never sh ----------
-test('on Windows the mod uses PowerShell for clipboard, files, transcript and notifications', async ($, on) => {
-  const { runs } = engine(on, { transcript: TRANSCRIPT, cwd: 'C:\\work\\proj' })
+test('on Windows the mod uses PowerShell for files, transcript and notifications', async ($, on) => {
+  const { runs, copies } = engine(on, { transcript: TRANSCRIPT, cwd: 'C:\\work\\proj' })
   on('prompt.submit', (_: any, e: any) => e)
   on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
   on('session.usage', () => ({ value: { startedAt: NOW, context: { window: 200000 }, rateLimits: [] } }))
@@ -279,7 +281,7 @@ test('on Windows the mod uses PowerShell for clipboard, files, transcript and no
   expect(runs.filter(isPs).every(x => x.argv[0] === 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' && x.argv.includes('-STA') && x.argv.includes('-NonInteractive'))).toBe(true)
   // stdin is ASCII-only JSON
   expect(runs.filter(isPs).every(x => x.stdin === undefined || /^[\x00-\x7e]*$/.test(x.stdin))).toBe(true)
-  expect(ps.some(c => c.includes('Set-Clipboard'))).toBe(true)
+  expect(copies).toEqual(['copy me']) // the clipboard is Claude Code's, no PowerShell needed
   expect(ps.some(c => c.includes('ToastNotificationManager'))).toBe(true)
   expect(ps.some(c => c.includes('Remove-Item'))).toBe(true)
 })

@@ -76,9 +76,13 @@ tables itself, fitted to the bubble: columns keep their natural width when every
 inside their column. Wide characters (CJK, emoji, `★`) are measured as two cells, alignment (`:---:`, `---:`) is
 honoured, and **bold**, `code` and links keep their style. Styles: `rules`, `box` or `minimal`.
 
+Two ways to copy a table: `[ copy table ]` gives you the Markdown (for GitHub, Notion, Obsidian), and
+`[ copy as cells ]` gives you tab-separated plain text, which Slack, Excel, Google Sheets and Numbers paste as a real
+table.
+
 ### Small things that add up
 
-- **Copy buttons** on every reply, code block, quote and table; in fullscreen they appear only when you point at the bubble.
+- **Copy buttons** on every reply, code block, quote and table; in fullscreen they appear only when you point at the bubble. They use Claude Code's own clipboard, so they work over SSH too.
 - **Pins**: `☆` on any bubble, then `/undertone-pins` lists what you pinned, with times. Pins survive restarts.
 - **Export**: `/undertone-export` writes the conversation to Markdown with every timestamp.
 - **Pasted images** become chips (`🖼 Image #3`) that open in your image viewer.
@@ -148,7 +152,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 ## Privacy and side effects
 
 - **No network.** Nothing leaves your machine.
-- **Programs it runs**, each with a timeout (5 s, 15 s on Windows): the clipboard (`pbcopy`, `wl-copy`/`xclip`/`xsel`, PowerShell), your OS's file opener when you click an image or *Open in editor*, the notifier for long turns, `tail`/`head` (or PowerShell) to read the session transcript in pieces, and `base64` (or PowerShell) to save pasted images.
+- **Programs it runs**, each with a timeout (5 s, 15 s on Windows): your OS's file opener when you click an image or *Open in editor*, the notifier for long turns, `tail`/`head` (or PowerShell) to read the session transcript in pieces, and `base64` (or PowerShell) to save pasted images.
 - **Pasted images** are copied to a private folder in your temp directory (readable only by you) so they can open, and **deleted when the session ends**.
 - On Windows, PowerShell runs by its full path (`%SystemRoot%\System32\…`), non-interactive, and receives its input as ASCII-escaped JSON.
 
@@ -165,7 +169,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 181 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 182 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code

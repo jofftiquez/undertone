@@ -23,6 +23,7 @@ function machine(on: any, env: Record<string, string> = { HOME: '/home/u', TMPDI
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
+  on('ui.copy', () => ({ value: { isCopied: true } }))
   on('config.set', (_: any, e: any) => { config[e.key] = e.value; return { value: e.value } })
   on('process.run', (_: any, e: any) => {
     const argv: string[] = e.argv ?? []
