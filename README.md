@@ -84,6 +84,8 @@ table.
 
 Claude's replies draw block by block, in the theme's colours:
 
+![Rich text: a boxed H1, an H2 over a heavy rule, a task list with two done items struck through, and a tip box](docs/rich-text.png)
+
 - **Headings**: H1 in a box, H2 over a heavy rule, H3 bold in an accent colour. *Heading style*: `banner`, `bold` or `underline`.
 - **Lists** keep their numbers and nest with `•` `◦` `▪`; **task lists** draw as `[ ]` and `[✓]`, done items dimmed and struck through. *Task list style*: `brackets`, `ticks` (`○` `✓`), `box` (`□` `✓`) or `progress`, which adds a done-count bar.
 - **Quotes** get an accent bar; **GitHub alerts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) draw as coloured boxes with their label.
@@ -91,17 +93,33 @@ Claude's replies draw block by block, in the theme's colours:
 - **Rules** draw across the bubble; lists and quotes get `[ copy list ]` and `[ copy quote ]`.
 - Inline text (bold, italic, code, links) is Claude Code's own, so links stay clickable. *Rich text* off gives Claude Code's drawing back.
 
+![A quote with an accent bar, a TypeScript block under its language header, and a numbered list](docs/code.png)
+
 ### Pictures
 
 When a picture explains better than prose, Claude can draw one, and undertone draws it in the bubble:
 
+<table>
+  <tr>
+    <td><img src="docs/chart.png" alt="A bar chart of signups by month, the tallest bar highlighted"></td>
+    <td><img src="docs/flowchart.png" alt="A flowchart drawn as a tree: Push, Tests pass?, yes to Deploy, no to Fix, which loops back"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/sequence.png" alt="A sequence diagram: You, Claude and Tools as boxes over lifelines, with request and reply arrows"></td>
+    <td><img src="docs/figure.png" alt="A figure: a retry racing a timeout on a time axis, in colour"></td>
+  </tr>
+</table>
+
 - **Charts** from ` ```mermaid ` blocks: `xychart-beta` bar and line series as bars measured to an eighth of a cell, the tallest one highlighted, and `pie` charts as share bars, largest first.
 - **Flowcharts** (`graph LR` / `TD`): a straight chain as boxes joined by arrows, with edge labels; branches and loops as a tree, `↺` where it loops back.
+- **Sequence diagrams**: a box per participant over its lifeline, each message an arrow with its text above, replies dashed, notes and `loop`/`alt` labels as dim lines.
 - **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run. A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
 - `[ copy source ]` and `[ copy art ]` on each. Other mermaid kinds, and a block still streaming, stay code.
 - So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
 
 ### Math, footnotes and copying
+
+![Inline math as symbols, the quadratic formula, and a footnote under a short rule](docs/math.png)
 
 - **Math**: inline `$E = mc^2$` reads *E = mc²*, and `$\alpha \le \beta$` reads *α ≤ β* (a price like `$5` stays as written). Display math, `$$…$$` or a ` ```math ` block, reads as text with symbols, `(-b ± √(b²-4ac))/2a`, or as a typeset picture where the terminal draws pictures and [`ratex-render`](https://github.com/erweixin/RaTeX/releases) is on your `PATH` (rename the release's `render` binary). `[ copy latex ]` copies the source.
 - **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply.
@@ -118,12 +136,16 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 
 ### The room
 
+![Claude handing work to an Explore agent, the agent's answer as its own bubble, a finished-task chip and the Agents strip above the prompt](docs/agents.png)
+
 - **System cards**: every slash command's output in a card: the command in Claude's colour, `[ copy ]` and the time; a red frame and `✗` when it failed.
 - **Group chat**: a message from an agent, teammate or another session is its own bubble with its name and colour; a finished background task is a chip, `✓ Explore finished · 9s`.
 - **Agents**: Claude handing work to an agent reads `↳ Claude → Explore: find the config`, with `◌ working` or `↗ in background`, then `✓ done`; a foreground agent's report is its own bubble, folded when long, and a background agent's arrives as its own message. Above the prompt, `Agents ● Explore · find the config ○ planner (done)`, and the turn summary counts them apart: `· 5 tools · 2 agents (31 tools)`.
 - **Claude asks**: Claude's multiple-choice questions sit under a `Claude asks` header, and the call's row says what was asked.
 - **Welcome**: `✻ Good morning · 3rd session today · last one ended 2h ago` when a session starts (with your name, if you set *Your label*).
 - **Footer pills** for mode labels, and a quieter run-in-background hint: `↧ ctrl+b · background` (or hidden).
+
+![/undertone-wrapped in a system card: prompts, tool calls, top tools, busiest hour, longest turn](docs/wrapped.png)
 
 ### Show-off
 
@@ -237,7 +259,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 257 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 260 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
