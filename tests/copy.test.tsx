@@ -121,3 +121,13 @@ test('an opened edit is a diff card: the file and +/− counts over the change',
   expect(((await ui.findAll({ type: 'Box' })) as any[]).some(b => b.props.borderStyle === 'round')).toBe(true)
   await ui.unmount()
 })
+
+test('an edit whose output has arrived reads ✓, even with isRunning still set (Claude Code leaves it on)', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 'ed2', props: { tool_use_id: 'ed2', tool: 'Edit', input: { file_path: '/work/src/app.ts', old_string: 'a', new_string: 'b' }, isRunning: true, isErrored: false, isInterrupted: false, output: { filePath: '/work/src/app.ts' } } } as any)
+  const texts = ((await ui.findAll({ type: 'Text' })) as any[]).map(t => t.text)
+  expect(texts).toContain(' ✓ ')
+  expect(texts).not.toContain(' ◌ ')
+  await ui.unmount()
+})

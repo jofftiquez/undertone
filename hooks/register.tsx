@@ -305,8 +305,11 @@ const clip = (s: string, n: number) => {
   const one = s.replace(/\s+/g, ' ').trim()
   return one.length > n ? one.slice(0, n - 1) + '…' : one
 }
-function statusOf(p: { isRunning: boolean; isErrored: boolean; isInterrupted: boolean }) {
-  if (p.isRunning) return { glyph: '◌', color: undefined }
+// Still running: Claude Code can leave isRunning set on a call whose output has arrived (an Edit
+// row), and draws that row once, so a call with its output counts as finished.
+const running = (c: { isRunning: boolean; output?: unknown }) => c.isRunning && c.output === undefined
+function statusOf(p: { isRunning: boolean; isErrored: boolean; isInterrupted: boolean; output?: unknown }) {
+  if (running(p)) return { glyph: '◌', color: undefined }
   if (p.isInterrupted) return { glyph: '⊘', color: 'warning' }
   if (p.isErrored) return { glyph: '✗', color: 'error' }
   return { glyph: '✓', color: undefined }
@@ -708,7 +711,7 @@ async function rowOf($: EngineInterface, call: Call, columns = 80) {
   const inp = (call.input ?? {}) as Record<string, unknown>
   const file = typeof inp.file_path === 'string' ? inp.file_path : typeof inp.notebook_path === 'string' ? inp.notebook_path : undefined
   // A PNG Claude read shows as a picture under its row.
-  const size = call.tool === 'Read' && file && /\.png$/i.test(file) && !call.isRunning && !call.isErrored && inlineImages() ? await pngFileSize($, file) : undefined
+  const size = call.tool === 'Read' && file && /\.png$/i.test(file) && !running(call) && !call.isErrored && inlineImages() ? await pngFileSize($, file) : undefined
   const preview = size && file ? { file, ...imageCells(size.w, size.h, Math.max(10, columns - 10), 12) } : undefined
   return { id, isOpen, glyph, color, line, file, preview, blocks: isOpen ? blocksOf(call) : [] }
 }
@@ -1110,14 +1113,43 @@ function drawWords(ui: ElementTable, th: Theme, text: string, extra: { dim?: boo
     </Text>
   )
 }
-function drawParagraphs(ui: ElementTable, th: Theme, md: string) {
+// A path in text as an absolute path: ~ is your home, ./ and ../ are the project folder's.
+function absPath(p: string) {
+  if (p.startsWith('~/')) return where.home ? where.home + p.slice(1) : undefined
+  if (p.startsWith('/')) return p
+  if (!where.cwd) return undefined
+  const parts = where.cwd.split('/')
+  for (const seg of p.split('/')) { if (seg === '..') parts.pop(); else if (seg && seg !== '.') parts.push(seg) }
+  return parts.join('/')
+}
+// A paragraph with a path lays out word by word, so the path can be a one-link Markdown that opens
+// it in the file viewer on a click (read-only; nothing is run), and the rest keeps its colours.
+function drawLinkedWords($: EngineInterface, ui: ElementTable, th: Theme, text: string, key: string) {
+  const { Box, Text, Markdown } = ui
+  return (
+    <Box flexWrap="wrap">
+      {textWords(text).map((sg, k) => {
+        const abs = sg.path ? absPath(sg.text) : undefined
+        if (abs) return <Markdown key={`${key}-${k}`} text={`[${sg.text}](file://${encodeURI(abs)})`} onLinkPress={() => viewFile($, abs)} />
+        return <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} color={sg.code ? th.user.border : sg.num ? 'warning' : sg.path ? 'permission' : th.claude.text}>{sg.text}</Text>
+      })}
+    </Box>
+  )
+}
+function drawParagraphs($: EngineInterface, ui: ElementTable, th: Theme, md: string, key: string) {
   const { Box } = ui
   const paras = md.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
   return (
     <Box flexDirection="column">
-      {paras.map((p, k) => (
-        <Box marginTop={k ? 1 : 0} justifyContent={isRtl(p) ? 'flex-end' : 'flex-start'}>{drawWords(ui, th, p.replace(/\s*\n\s*/g, ' '))}</Box>
-      ))}
+      {paras.map((p, k) => {
+        const flat = p.replace(/\s*\n\s*/g, ' ')
+        const linked = opt<unknown>('clickPaths', true) !== false && !isRtl(p) && textWords(flat).some(sg => sg.path && absPath(sg.text))
+        return (
+          <Box marginTop={k ? 1 : 0} justifyContent={isRtl(p) ? 'flex-end' : 'flex-start'}>
+            {linked ? drawLinkedWords($, ui, th, flat, `${key}-${k}`) : drawWords(ui, th, flat)}
+          </Box>
+        )
+      })}
     </Box>
   )
 }
@@ -1252,7 +1284,7 @@ function flowOf(src: string): Flow | undefined {
 // What the note on your prompts tells Claude (about 130 tokens).
 const PICTURE_HINT = [
   'This terminal draws, inside your replies: GitHub-flavoured markdown (headings, nested and task lists, > [!NOTE]/[!TIP]/[!WARNING] alerts);',
-  '```mermaid flowcharts (graph LR or TD, no subgraphs), stateDiagram, sequenceDiagram, classDiagram, erDiagram, gantt (YYYY-MM-DD dates), xychart-beta bar and line charts, and pie charts;',
+  '```mermaid flowcharts (graph LR or TD, no subgraphs), stateDiagram, sequenceDiagram, classDiagram, erDiagram, gantt (YYYY-MM-DD dates), mindmap, journey, gitGraph, xychart-beta bar and line charts, and pie charts;',
   'and ```figure blocks, drawn exactly as written, where {accent:…} {warn:…} {ok:…} {note:…} {dim:…} {strong:…} colour a run',
   '(one-column glyphs only, at most 74 columns). Use a picture when it explains better than prose; keep short answers plain.',
 ].join(' ')
@@ -1408,7 +1440,8 @@ function naturalWidth(part: Part, room: number, th: Theme): number | undefined {
   else {
     const chart = chartOf(part.copy), flow = chart ? undefined : flowOf(part.copy), seq = chart || flow ? undefined : seqOf(part.copy), gantt = chart || flow || seq ? undefined : ganttOf(part.copy)
     const state = chart || flow || seq || gantt ? undefined : stateOf(part.copy), model = chart || flow || seq || gantt || state ? undefined : modelOf(part.copy)
-    rows = chart ? chartRows(chart, room) : flow ? flowRows(flow, room) : seq ? seqRows(seq, room) : gantt ? ganttRows(gantt, room) : state ? flowRows(state, room) : model ? modelRows(model, room) : undefined
+    rows = chart ? chartRows(chart, room) : flow ? flowRows(flow, room) : seq ? seqRows(seq, room) : gantt ? ganttRows(gantt, room) : state ? flowRows(state, room) : model ? modelRows(model, room)
+      : mindmapRows(part.copy, room) ?? journeyRows(part.copy, room) ?? gitRows(part.copy, room)
     if (chart) return Math.min(room, Math.max(...(rows ?? []).map(r => strWidth(r.map(sg => sg.text).join('').trimEnd())), 30)) // bars fill what they get
   }
   return rows ? Math.max(...rows.map(r => strWidth(r.map(sg => sg.text).join('').trimEnd()))) : undefined
@@ -1539,6 +1572,114 @@ function modelRows(m: Model, room: number): Seg2[][] | undefined {
   return out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? undefined : out
 }
 
+// Mindmaps: a tree from the root, each top-level branch in its own colour.
+function mindmapRows(src: string, room: number): Seg2[][] | undefined {
+  const raw = src.split('\n').filter(l => l.trim() && !l.trim().startsWith('%%'))
+  if (raw[0]?.trim() !== 'mindmap') return undefined
+  const text = (t: string) => t.trim().replace(/^[\w-]*(\(\(|\)\)|\[|\(|\)|\{\{)(.*?)(\)\)|\(\(|\]|\)|\(|\}\})$/, '$2').replace(/^"(.*)"$/, '$1').replace(/::icon\(.*\)/, '').trim()
+  type Node = { label: string; depth: number; kids: Node[] }
+  const nodes = raw.slice(1).map(l => ({ label: text(l), depth: l.length - l.trimStart().length, kids: [] as Node[] }))
+  if (!nodes.length) return undefined
+  const top = nodes[0]!, stack: Node[] = [top]
+  for (const n of nodes.slice(1)) {
+    while (stack.length > 1 && stack.at(-1)!.depth >= n.depth) stack.pop()
+    stack.at(-1)!.kids.push(n)
+    stack.push(n)
+  }
+  const out: Seg2[][] = [[{ text: '◉ ', role: 'accent' }, { text: top.label, role: 'strong' }]]
+  const walk = (n: Node, prefix: string, ink: string) => n.kids.forEach((k, i) => {
+    const last = i === n.kids.length - 1
+    out.push([{ text: prefix + (last ? '└─ ' : '├─ '), role: 'dim' }, { text: k.label, role: ink }])
+    walk(k, prefix + (last ? '   ' : '│  '), ink)
+  })
+  top.kids.forEach((k, i) => {
+    const ink = 'ink:' + SERIES_INKS[i % SERIES_INKS.length]
+    const last = i === top.kids.length - 1
+    out.push([{ text: last ? '└─ ' : '├─ ', role: 'dim' }, { text: k.label, role: 'strong' }])
+    walk(k, last ? '   ' : '│  ', ink)
+  })
+  return out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? undefined : out
+}
+
+// User journeys: each task's score as a bar, red to green, with who took part.
+function journeyRows(src: string, room: number): Seg2[][] | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (lines[0] !== 'journey') return undefined
+  const rows: ({ section: string } | { task: string; score: number; who: string })[] = []
+  let title: string | undefined
+  for (const l of lines.slice(1)) {
+    if (/^title\s/.test(l)) { title = l.slice(6).trim(); continue }
+    if (/^section\s/.test(l)) { rows.push({ section: l.slice(8).trim() }); continue }
+    const m = /^(.+?)\s*:\s*(\d)\s*(?::\s*(.*))?$/.exec(l)
+    if (!m) return undefined
+    rows.push({ task: m[1]!, score: Math.max(0, Math.min(5, Number(m[2]))), who: m[3]?.trim() ?? '' })
+  }
+  const tasks = rows.filter((r): r is { task: string; score: number; who: string } => 'task' in r)
+  if (!tasks.length) return undefined
+  const labelW = Math.min(28, Math.max(...tasks.map(t => strWidth(t.task))))
+  const out: Seg2[][] = title ? [[{ text: title, role: 'strong' }]] : []
+  for (const r of rows) {
+    if ('section' in r) { out.push([{ text: r.section, role: 'dim' }]); continue }
+    const ink = r.score <= 2 ? 'warn' : r.score === 3 ? 'note' : 'ok'
+    const name = strWidth(r.task) > labelW ? clip(r.task, labelW) : r.task + ' '.repeat(labelW - strWidth(r.task))
+    out.push([{ text: '  ' + name + '  ' }, { text: '█'.repeat(r.score * 2) + '·'.repeat((5 - r.score) * 2), role: ink }, { text: ` ${r.score}/5`, role: ink }, { text: r.who ? '  ' + r.who : '', role: 'dim' }])
+  }
+  return out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? undefined : out
+}
+
+// Git graphs: a lane per branch; ● a commit, ╮ where a branch starts, ╯ where one merges back,
+// with each commit's id or tag beside it.
+function gitRows(src: string, room: number): Seg2[][] | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (!/^gitGraph\b/.test(lines[0] ?? '')) return undefined
+  const lanes = ['main']
+  let cur = 0
+  const out: Seg2[][] = []
+  const inkOf = (k: number) => 'ink:' + SERIES_INKS[k % SERIES_INKS.length]
+  const row = (marks: Record<number, string>, label: Seg2[] = []) => {
+    const segs: Seg2[] = []
+    lanes.forEach((_, k) => {
+      const mark = marks[k] ?? '│'
+      segs.push({ text: mark, role: marks[k] ? inkOf(k) : 'dim' })
+      if (k < lanes.length - 1) segs.push({ text: marks[`${k}+` as unknown as number] ?? ' ', role: 'dim' })
+    })
+    out.push([...segs, { text: '  ' }, ...label])
+  }
+  let n = 0
+  for (const l of lines.slice(1)) {
+    const field = (k: string) => new RegExp(k + ':\\s*"([^"]*)"').exec(l)?.[1]
+    if (/^commit\b/.test(l)) {
+      n++
+      const id = field('id'), tag = field('tag')
+      row({ [cur]: '●' }, [{ text: id ?? `${lanes[cur]} ${n}`, role: id ? 'strong' : 'dim' }, ...(tag ? [{ text: `  [${tag}]`, role: 'note' }] : [])])
+    } else if (/^branch\s/.test(l)) {
+      const name = l.split(/\s+/)[1]!
+      if (lanes.includes(name)) return undefined
+      lanes.push(name)
+      const to = lanes.length - 1
+      const marks: Record<string, string> = { [cur]: '├', [to]: '╮' }
+      for (let k = cur; k < to; k++) marks[`${k}+`] = '─'
+      for (let k = cur + 1; k < to; k++) marks[k] = '┼'
+      row(marks as unknown as Record<number, string>, [{ text: name, role: inkOf(to) }])
+      cur = to
+    } else if (/^(checkout|switch)\s/.test(l)) {
+      const k = lanes.indexOf(l.split(/\s+/)[1]!)
+      if (k < 0) return undefined
+      cur = k
+    } else if (/^merge\s/.test(l)) {
+      const from = lanes.indexOf(l.split(/\s+/)[1]!)
+      if (from < 0) return undefined
+      n++
+      const lo = Math.min(from, cur), hi = Math.max(from, cur)
+      const marks: Record<string, string> = { [cur]: '●', [from]: from > cur ? '╯' : '╰' }
+      for (let k = lo; k < hi; k++) marks[`${k}+`] = '─'
+      row(marks as unknown as Record<number, string>, [{ text: `merge ${lanes[from]}`, role: 'dim' }, ...(field('tag') ? [{ text: `  [${field('tag')}]`, role: 'note' }] : [])])
+    } else if (/^cherry-pick\b/.test(l)) { n++; row({ [cur]: '●' }, [{ text: 'cherry-pick ' + (field('id') ?? ''), role: 'dim' }]) }
+    else return undefined
+  }
+  return out.length && !out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? out : undefined
+}
+
 // One rich block, or undefined to leave the part to the drawing it had before.
 function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button, Markdown, Code } = ui
@@ -1561,7 +1702,7 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     if (style === 'banner' && level === 2) return <Box flexDirection="column" marginTop={i ? 1 : 0}>{words}<Text color={th.claude.border}>{'━'.repeat(Math.max(3, room))}</Text></Box>
     return <Box marginTop={i && level <= 3 ? 1 : 0}>{words}</Box>
   }
-  if (part.kind === 'md' && colorText() && plainParagraphs(part.md)) return drawParagraphs(ui, th, part.md)
+  if (part.kind === 'md' && colorText() && plainParagraphs(part.md)) return drawParagraphs($, ui, th, part.md, 'p' + i)
   if (part.kind === 'rule') return <Text color={th.claude.border} dimColor>{'─'.repeat(Math.max(3, room))}</Text>
   if (part.kind === 'notes') {
     return (
@@ -1670,8 +1811,9 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
     else if (gantt) rows = ganttRows(gantt, room)
     else if (state) rows = flowRows(state, room)
     else if (model) rows = modelRows(model, room)
-    else return undefined // a mermaid kind undertone does not draw: Claude Code's code block
-    if (!rows) return undefined // too wide for the bubble: the source stays readable as code
+    else rows = mindmapRows(part.copy, room) ?? journeyRows(part.copy, room) ?? gitRows(part.copy, room)
+    // a kind undertone does not draw, or one too wide for the bubble: the source stays readable as code
+    if (!rows) return undefined
   }
   if (!rows) {
     return (
@@ -2144,8 +2286,8 @@ async function drawAgent($: EngineInterface, e: RenderInput<'ToolUse'>) {
     : run?.status === 'stopped' ? statusOf({ isRunning: false, isErrored: true, isInterrupted: true })
     : { glyph: '↗', color: undefined }
   const state = background ? (ended ? (run!.status === 'done' ? 'done' : 'stopped') : 'in background')
-    : call.isRunning ? 'working' : call.isInterrupted ? 'stopped' : call.isErrored ? 'failed' : 'done'
-  const report = call.isRunning || background ? '' : outputText(call.output).trim()
+    : running(call) ? 'working' : call.isInterrupted ? 'stopped' : call.isErrored ? 'failed' : 'done'
+  const report = running(call) || background ? '' : outputText(call.output).trim()
   const cols = e.viewport?.columns ?? 80
   const lines = report.split('\n')
   const foldId = 'agent:' + (call.tool_use_id ?? '')
@@ -2587,6 +2729,7 @@ export const register: Register = (on, options) => {
       shown = head.join('\n')
     }
     const rich = richText()
+    if (rich && !where.cwd) { where.cwd = await $.session.cwd().catch(() => ''); where.home = await homeDir($).catch(() => '') }
     const parts = splitReply(shown, rich)
     const room = w - chrome(th.claude, th.padding)
     // A typeset formula needs a real colour: the theme's text where it has one, else dark ink on a
@@ -2712,7 +2855,7 @@ export const register: Register = (on, options) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
     const t = await timeOf($, calls[0]?.tool_use_id)
-    const st = calls.some(c => c.isRunning) ? statusOf({ isRunning: true, isErrored: false, isInterrupted: false })
+    const st = calls.some(running) ? statusOf({ isRunning: true, isErrored: false, isInterrupted: false })
       : anyFailed ? statusOf({ isRunning: false, isErrored: true, isInterrupted: false }) : statusOf({ isRunning: false, isErrored: false, isInterrupted: false })
     const head = (
       <Box paddingLeft={3}>

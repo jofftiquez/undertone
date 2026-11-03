@@ -112,7 +112,7 @@ test('flowchart with a branch and a loop: a tree with edge labels and ↺', { op
 test('a mermaid kind undertone does not draw, or a block still streaming, stays code', { options: OPTS }, async ($, on) => {
   machine(on)
   await start($)
-  let ui = await mount($, fence('mermaid', 'mindmap\n  root((plan))\n    a\n    b'))
+  let ui = await mount($, fence('mermaid', 'quadrantChart\n  title Reach\n  x-axis Low --> High'))
   expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.language).toBe('mermaid')
   await ui.unmount()
   ui = await mount($, '```mermaid\nxychart-beta\n  bar [1, 2') // no closing fence yet
@@ -203,5 +203,38 @@ test('ER diagram: entities as boxes, relations with their cardinality', { option
   expect(all.some(t => t.startsWith('CUSTOMER'))).toBe(true)
   expect(all.some(t => t.startsWith('string name'))).toBe(true)
   expect(all).toContain('  places (one to many)')
+  await ui.unmount()
+})
+
+test('mindmap: a tree from the root, the branches as written', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'mindmap\n  root((undertone))\n    Bubbles\n      Timestamps\n    Pictures'))
+  const all = await lines(ui)
+  expect(all).toContain('undertone')
+  expect(all).toContain('├─ ')
+  expect(all).toContain('│  └─ ')
+  expect(all).toContain('Timestamps')
+  expect(all).toContain('└─ ')
+  await ui.unmount()
+})
+
+test('user journey: each score as a bar, red to green, with who took part', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'journey\n  title Release day\n  section Build\n    Run tests: 5: Me\n    Fix a flaky one: 2: Me, CI'))
+  const all = (await ui.findAll({ type: 'Text' })) as any[]
+  expect(all.find(t => t.text === '██████████')?.props.color).toBe('success')
+  expect(all.find(t => t.text === '████······')?.props.color).toBe('error')
+  expect(all.map(t => t.text)).toContain('  Me, CI')
+  await ui.unmount()
+})
+
+test('git graph: lanes, a branch starting with ╮, a merge with ╯, ids and tags', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'gitGraph\n  commit id: "init"\n  branch feature\n  checkout feature\n  commit id: "add png"\n  checkout main\n  merge feature tag: "v1"'))
+  const rows = (await lines(ui)).filter(t => /^[│├●]/.test(t))
+  expect(rows).toEqual(expect.arrayContaining(['●  init', '├─╮  feature', '│ ●  add png', '●─╯  merge feature  [v1]']))
   await ui.unmount()
 })

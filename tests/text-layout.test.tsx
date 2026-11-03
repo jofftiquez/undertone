@@ -28,9 +28,10 @@ test('numbers, versions, durations and percentages in amber; paths in their colo
   await start($)
   const ui = await mount($, 'Build v2.14.0 took 250ms, 99.9% passed; logs in ~/src/app.log and ./out/report.md.')
   for (const n of ['v2.14.0', '250ms', '99.9%']) expect(await ink(ui, n)).toBe('warning')
-  for (const p of ['~/src/app.log', './out/report.md']) expect(await ink(ui, p)).toBe('permission')
   expect(await ink(ui, 'Build')).not.toBe('warning')
-  expect((await all(ui, 'Markdown')).length).toBe(0)
+  // paths are links: a click opens them in the file viewer (~ is home, ./ the project folder)
+  const links = (await all(ui, 'Markdown')).map(m => m.props.text)
+  expect(links).toEqual(['[~/src/app.log](file:///home/u/src/app.log)', '[./out/report.md](file:///work/out/report.md)'])
   await ui.unmount()
 })
 
@@ -103,5 +104,27 @@ test('gantt: a milestone at the very end stays on its row, inside the bubble', {
   const row = (await all(ui, 'Text')).find(t => /^Ship +◆$/.test(t.text))
   expect(row).toBeDefined()
   expect(row.text.length).toBeLessThanOrEqual(bubble.props.width - 4)
+  await ui.unmount()
+})
+
+test('clicking a path in a reply opens it in the file viewer', { options: OPTS }, async ($, on) => {
+  machine(on)
+  let opened = ''
+  on('ui.open', (_: any, e: any) => { opened = e.id; return { value: { isPlaced: true } } })
+  await start($)
+  const ui = await mount($, 'See ./src/app.ts for the code.')
+  const link = (await all(ui, 'Markdown')).find(m => /src\/app\.ts/.test(m.props.text))
+  expect(link?.props.text).toBe('[./src/app.ts](file:///work/src/app.ts)')
+  await $.ui.press({ plugin: P, key: link.key, requestId: 'a1', link: { href: 'file:///work/src/app.ts' } } as any)
+  expect(opened).toBe('undertone-file')
+  await ui.unmount()
+})
+
+test('clickPaths off: paths stay coloured text', { options: { ...OPTS, clickPaths: false } }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, 'See ./src/app.ts for the code.')
+  expect(await ink(ui, './src/app.ts')).toBe('permission')
+  expect((await all(ui, 'Markdown')).length).toBe(0)
   await ui.unmount()
 })
