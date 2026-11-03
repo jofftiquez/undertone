@@ -266,6 +266,25 @@ test('a file path in a tool row opens the viewer pane', async ($, on) => {
   await pane.unmount()
 })
 
+for (const [os, cwd, path, want, never] of [
+  ['macOS/Linux', '/work/proj', '/work/proj/setup.command', 'open -t', 'xdg-open'],
+  ['Windows', 'C:\\work\\proj', 'C:\\work\\proj\\fix.bat', 'notepad.exe', 'Invoke-Item'],
+] as const) test(`Open in editor uses a text editor, never the default app, on ${os}`, async ($, on) => {
+  const { runs } = engine(on, { cwd })
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('fs.read', () => ({ value: 'echo hi\n' }))
+  await start($)
+  const row = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 'tu8', props: { tool_use_id: 'tu8', tool: 'Write', input: { file_path: path, content: 'echo hi' }, isRunning: false, isErrored: false, isInterrupted: false } })
+  await $.ui.press({ plugin: P, key: 'f0', requestId: 'tu8' })
+  await row.unmount()
+  const pane = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'Pane', requestId: 'undertone-file', props: { title: 'x', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } })
+  await $.ui.press({ plugin: P, key: 'open-ext', requestId: 'undertone-file' })
+  await pane.unmount()
+  const opener = runs.at(-1)!.argv.join(' ')
+  expect(opener).toContain(want)
+  expect(opener).not.toContain(never)
+})
+
 // ---------- export ----------
 test('/undertone-export writes Markdown with timestamps', async ($, on) => {
   const { writes } = engine(on, { transcript: TRANSCRIPT })

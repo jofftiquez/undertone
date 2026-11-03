@@ -63,7 +63,7 @@ Works on **macOS, Linux and Windows**. Requires a Claude Code build with mod sup
 - One line per call, in plain words, with a status mark: `◌` running, `✓` done, `✗` failed (opens by itself), `⊘` interrupted.
 - `[ + ]` opens a call with its **highlighted** command, diff, file or output, and a `[ copy ]` button.
 - Grouped calls fold into one summary row.
-- File paths open a **side panel** with the file, highlighted, and an *Open in editor* button.
+- File paths open a **side panel** with the file, highlighted, and an *Open in editor* button that always opens a text editor.
 - A **turn summary** after each reply: `· Baked 42s · 5 tools · 38k in / 1.2k out · $0.041 · 1 failed`.
 - While Claude works, the spinner counts tools live: `Sauteing · 3 tools…`
 
@@ -152,7 +152,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 ## Privacy and side effects
 
 - **No network.** Nothing leaves your machine.
-- **Programs it runs**, each with a timeout (5 s, 15 s on Windows): your OS's file opener when you click an image or *Open in editor*, the notifier for long turns, `tail`/`head` (or PowerShell) to read the session transcript in pieces, and `base64` (or PowerShell) to save pasted images.
+- **Programs it runs**, each with a timeout (5 s, 15 s on Windows): your OS's image viewer when you click a pasted image, a text editor for *Open in editor* (`open -t` on macOS, Notepad on Windows, the default text editor through `gtk-launch` on Linux; never the default app, so a script or app a tool call wrote is opened, not run), the notifier for long turns, `tail`/`head` (or PowerShell) to read the session transcript in pieces, and `base64` (or PowerShell) to save pasted images.
 - **Pasted images** are copied to a private folder in your temp directory (readable only by you) so they can open, and **deleted when the session ends**.
 - On Windows, PowerShell runs by its full path (`%SystemRoot%\System32\…`), non-interactive, and receives its input as ASCII-escaped JSON.
 

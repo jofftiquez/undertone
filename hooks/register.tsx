@@ -520,10 +520,23 @@ async function deleteSavedImages($: EngineInterface) {
   savedImages.clear()
 }
 
-// Opens a file in the OS default app: open (macOS), xdg-open (Linux), Invoke-Item (Windows).
-async function openFile($: EngineInterface, path: string) {
+// Opens a pasted image in the OS default app: open (macOS), xdg-open (Linux), Invoke-Item
+// (Windows). Only for images undertone saved itself; any other file goes to openInEditor.
+async function openImage($: EngineInterface, path: string) {
   if (await windows($)) return ps($, `Invoke-Item -LiteralPath $p.path`, { path })
   return run($, ['sh', '-c', 'if [ "$(uname)" = Darwin ]; then open "$1"; else xdg-open "$1" >/dev/null 2>&1 & fi', 'sh', path])
+}
+
+// "Open in editor": always a text editor, never the default app, which would run a .command,
+// .app, .bat or .jar that a tool call wrote. macOS: open -t (the default text editor);
+// Windows: Notepad by full path; Linux: the default text/plain app through gtk-launch.
+async function openInEditor($: EngineInterface, path: string) {
+  const r = (await windows($))
+    ? await ps($, `Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\notepad.exe') -ArgumentList ('"' + $p.path + '"')`, { path }).catch(() => ({ exitCode: 1 }))
+    : await run($, ['sh', '-c', 'if [ "$(uname)" = Darwin ]; then exec open -t "$1"; fi; ' +
+      'app=$(xdg-mime query default text/plain 2>/dev/null); [ -n "$app" ] && command -v gtk-launch >/dev/null || exit 127; ' +
+      'gtk-launch "${app%.desktop}" "$1" >/dev/null 2>&1 &', 'sh', path]).catch(() => ({ exitCode: 1 }))
+  if (r.exitCode !== 0) $.ui.toast(r.exitCode === 127 ? 'No text editor found: use Copy path' : 'Could not open the file')
 }
 
 // "[Image #N]" in a prompt's text pairs, in order, with the image blocks of that
@@ -1171,7 +1184,7 @@ export const register: Register = (on, options) => {
                   ? (
                     // Highlighted chip: blue fill, brighter on hover.
                     <Box key={'chip' + n} backgroundColor={th.chip} hover={{ backgroundColor: th.chipHover }}>
-                      <Button key={'img' + n} plain label={' 🖼  Image #' + n + ' '} onPress={() => openFile($, file)} />
+                      <Button key={'img' + n} plain label={' 🖼  Image #' + n + ' '} onPress={() => openImage($, file)} />
                     </Box>
                   )
                   : <Text dimColor>{'🖼 Image #' + n + ' (loading…)'}</Text>
@@ -1433,7 +1446,7 @@ export const register: Register = (on, options) => {
     if (!path) return <Text dimColor>No file selected.</Text>
     const buttons = (
       <Box columnGap={1}>
-        <Button key="open-ext" label="Open in editor" onPress={() => openFile($, path)} />
+        <Button key="open-ext" label="Open in editor" onPress={() => openInEditor($, path)} />
         <Button key="copy-path" label="Copy path" onPress={p => copyText($, path, 'path', p.surface)} />
         <Button key="close" label="Close" onPress={() => $.ui.close({ id: FILE_PANE })} />
       </Box>
