@@ -1012,13 +1012,12 @@ async function exportChat($: EngineInterface, target: string) {
     path = `${dir}${sep}chat-${new Date(now).toISOString().slice(0, 10)}-${(await $.session.id()).slice(0, 8)}.md`
   }
   await $.fs.write(path, out.join('\n'))
-  return `Exported ${n} messages (${timed} with times; live index ${Object.keys(idx.times).length}, fresh read ${Object.keys(fresh).length}) to ${path}`
+  return `Exported ${n} messages (${timed} with times) to ${path}`
 }
 
 // ---------- Turn summary ----------
 type TurnSummary = { tools: number; failed: number; inTok: number; outTok: number; usd?: number; endMs: number }
 const kTok = (n: number) => (n >= 1000 ? (n / 1000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(n))
-const LONG_TURN_MS = 30_000 // toast when a turn runs longer than this
 
 export const register: Register = (on, options) => {
   opts = options
