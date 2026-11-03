@@ -154,6 +154,8 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
   </tr>
 </table>
 
+![A pie chart drawn as a circle of coloured cells: Tests 46%, Bundling 28%, Type check 16%, Lint 10%](docs/pie-round.png)
+
 - **Charts** from ` ```mermaid ` blocks: `xychart-beta` bar and line series as bars measured to an eighth of a cell, the tallest one highlighted, and `pie` charts as share bars, largest first, or as a circle with *Pie charts* `round`.
 - **Flowcharts** (`graph LR` / `TD`): a straight chain as boxes joined by arrows, with edge labels; branches and loops as a tree, `↺` where it loops back.
 - **State diagrams** draw like flowcharts, `●` where they start and `◉` where they end; **class and ER diagrams** as a box per class or entity with its members, and the relations under them in words (`Duck ──▷ Animal  inherits`, `CUSTOMER ──▶ ORDER  places (one to many)`).
@@ -171,6 +173,8 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 
 - **Math**: inline `$E = mc^2$` reads *E = mc²*, and `$\alpha \le \beta$` reads *α ≤ β* (a price like `$5` stays as written). Display math, `$$…$$` or a ` ```math ` block, reads as text with symbols, `(-b ± √(b²-4ac))/2a`, or as a typeset picture where the terminal draws pictures and [`ratex-render`](https://github.com/erweixin/RaTeX/releases) is on your `PATH` (rename the release's `render` binary). `[ copy latex ]` copies the source.
 - **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply.
+
+  ![A sentence with two superscript marks, and their notes under a short rule](docs/footnotes.png)
 - **Copy without the mouse**: `/undertone copy` copies the last reply, `/undertone copy code` its last code block.
 
 ### Like a chat app
@@ -269,7 +273,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Bubble buttons | `hover` | `inline` to always show ☆ and copy |
 | Bubble labels | on | off = frames only, no names or icons |
 | Table style | `rules` | `box`, `minimal` |
-| Time format | `precise` | `short`, `off` |
+| Time format | `precise` | `short`, `24h`, `off` |
 | Keep last N turns unfolded | `10` | `0` never folds |
 | Fold replies longer than | `15` lines | |
 | Long replies start | `closed` | `open`, with `[ less ]` |
@@ -299,7 +303,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
 
-Colours: numbers, paths, headings, bullets, diagrams, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme.
+Colours: numbers, paths, headings, bullets, diagrams, table headers, rules and text, diff additions and removals, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme.
 
 ## Privacy and side effects
 
@@ -321,7 +325,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 304 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 306 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
