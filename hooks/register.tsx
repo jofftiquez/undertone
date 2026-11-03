@@ -418,7 +418,7 @@ async function indexTranscriptInner($: EngineInterface, dbg: Record<string, unkn
   const saved: Record<string, { path: string }> = {}
   for (const [n, at] of Object.entries(idx.images)) {
     const path = await saveImage($, n, at).catch(() => undefined)
-    if (path) saved[n] = { path }
+    if (path) { saved[n] = { path }; at.data = '' } // on disk now; don't hold the base64 too
   }
   await $.state.set(IMAGES, saved)
 }
@@ -492,11 +492,12 @@ async function saveImage($: EngineInterface, n: string, at: ImageAt) {
   const name = `${(await $.session.id()).slice(0, 8)}-${n}.${at.mediaType.replace('image/', '').replace('jpeg', 'jpg')}`
   const known = savedImages.get(name)
   if (known) return known
-  const sep = await sepOf($)
-  const target = [await tempDir($), 'undertone', name].join(sep)
+  const tmp = await tempDir($)
+  // Windows' %TEMP% is per-user. On Unix the folder is per-user and private (0700), and one
+  // we don't own or that is a symlink is refused: /tmp is shared on Linux.
   const r = (await windows($))
-    ? await ps($, `New-Item -ItemType Directory -Force (Split-Path $p.path) | Out-Null; [IO.File]::WriteAllBytes($p.path, [Convert]::FromBase64String($p.data)); Write-Output $p.path`, { path: target, data: at.data })
-    : await run($, ['sh', '-c', 'mkdir -p "$(dirname "$1")" && base64 -d > "$1" && printf %s "$1"', 'sh', target], at.data)
+    ? await ps($, `New-Item -ItemType Directory -Force (Split-Path $p.path) | Out-Null; [IO.File]::WriteAllBytes($p.path, [Convert]::FromBase64String($p.data)); Write-Output $p.path`, { path: [tmp, 'undertone', name].join('\\'), data: at.data })
+    : await run($, ['sh', '-c', 'umask 077; d="$1/undertone-$(id -u)"; mkdir -p "$d" && [ -O "$d" ] && [ ! -L "$d" ] && base64 -d > "$d/$2" && printf %s "$d/$2"', 'sh', tmp, name], at.data)
   const path = r.stdout.trim()
   if (r.exitCode !== 0 || !path) return undefined
   savedImages.set(name, path)
@@ -506,9 +507,9 @@ async function saveImage($: EngineInterface, n: string, at: ImageAt) {
 // Deletes this session's saved image copies (screenshots may hold sensitive data).
 async function deleteSavedImages($: EngineInterface) {
   const prefix = (await $.session.id()).slice(0, 8) + '-'
-  const dir = [await tempDir($), 'undertone'].join(await sepOf($))
-  if (await windows($)) await ps($, `Get-ChildItem -LiteralPath $p.dir -Filter ($p.prefix + '*') -ErrorAction SilentlyContinue | Remove-Item -Force`, { dir, prefix })
-  else await run($, ['sh', '-c', 'rm -f "$1"/"$2"*', 'sh', dir, prefix])
+  const tmp = await tempDir($)
+  if (await windows($)) await ps($, `Get-ChildItem -LiteralPath $p.dir -Filter ($p.prefix + '*') -ErrorAction SilentlyContinue | Remove-Item -Force`, { dir: tmp + '\\undertone', prefix })
+  else await run($, ['sh', '-c', 'rm -f "$1/undertone-$(id -u)/$2"*', 'sh', tmp, prefix])
   savedImages.clear()
 }
 

@@ -50,7 +50,7 @@ function engine(on: any, opts: { transcript?: string; cwd?: string } = {}) {
     else if (script.includes('tail -c')) {
       const off = Number(argv[argv.length - 2]) - 1
       stdout = (opts.transcript ?? '').slice(off)
-    } else if (script.includes('base64 -d')) stdout = argv[argv.length - 1]!
+    } else if (script.includes('base64 -d')) stdout = `${argv[argv.length - 2]}/undertone-501/${argv[argv.length - 1]}`
     else if (script.includes('HOME')) stdout = '/home/u'
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -102,6 +102,17 @@ test('a pasted image becomes a chip that opens the saved file', async ($, on) =>
   await $.ui.press({ plugin: P, key: 'img1', requestId: 'p2' })
   expect(runs.some(r => r.argv.join(' ').includes('open'))).toBe(true)
   await ui.unmount()
+})
+
+test('pasted images are saved to a private, per-user folder', async ($, on) => {
+  const { runs } = engine(on, { transcript: TRANSCRIPT })
+  await start($)
+  const ui = await $.ui.mount(prompt('p2', 'look [Image #1]'))
+  await ui.unmount()
+  const save = runs.find(r => r.argv.join(' ').includes('base64 -d'))!.argv.join(' ')
+  expect(save).toContain('umask 077')
+  expect(save).toContain('undertone-$(id -u)')
+  expect(save).toContain('[ ! -L "$d" ]')
 })
 
 test('session end deletes the saved images', async ($, on) => {

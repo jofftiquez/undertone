@@ -149,7 +149,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 
 - **No network.** Nothing leaves your machine.
 - **Programs it runs**, each with a timeout (5 s, 15 s on Windows): the clipboard (`pbcopy`, `wl-copy`/`xclip`/`xsel`, PowerShell), your OS's file opener when you click an image or *Open in editor*, the notifier for long turns, `tail`/`head` (or PowerShell) to read the session transcript in pieces, and `base64` (or PowerShell) to save pasted images.
-- **Pasted images** are copied to your temp folder so they can open, and **deleted when the session ends**.
+- **Pasted images** are copied to a private folder in your temp directory (readable only by you) so they can open, and **deleted when the session ends**.
 - On Windows, PowerShell runs by its full path (`%SystemRoot%\System32\…`), non-interactive, and receives its input as ASCII-escaped JSON.
 
 ## Develop
@@ -165,7 +165,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 180 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 181 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 The code lives in `hooks/register.tsx`; the state contract in `types/index.d.ts`.
