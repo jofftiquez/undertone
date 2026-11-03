@@ -80,6 +80,17 @@ Two ways to copy a table: `[ copy table ]` gives you the Markdown (for GitHub, N
 `[ copy as cells ]` gives you tab-separated plain text, which Slack, Excel, Google Sheets and Numbers paste as a real
 table.
 
+### Rich text
+
+Claude's replies draw block by block, in the theme's colours:
+
+- **Headings**: H1 in a box, H2 over a heavy rule, H3 bold in an accent colour. *Heading style*: `banner`, `bold` or `underline`.
+- **Lists** keep their numbers and nest with `•` `◦` `▪`; **task lists** draw as `[ ]` and `[✓]`, done items dimmed and struck through. *Task list style*: `brackets`, `ticks` (`○` `✓`), `box` (`□` `✓`) or `progress`, which adds a done-count bar.
+- **Quotes** get an accent bar; **GitHub alerts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`) draw as coloured boxes with their label.
+- **Code** sits under a header with its language and `[ copy code ]`, highlighted, with no frame, so a mouse selection copies just the code.
+- **Rules** draw across the bubble; lists and quotes get `[ copy list ]` and `[ copy quote ]`.
+- Inline text (bold, italic, code, links) is Claude Code's own, so links stay clickable. *Rich text* off gives Claude Code's drawing back.
+
 ### Like a chat app
 
 - **Reactions**: `[ react ]` on any bubble, then 👍 💖 😂 🤯. They show under the bubble, survive restarts and go into exports; press one again to take it back.
@@ -178,6 +189,9 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Light by day, dark by night | off | with *Daytime hours* `7-19` |
 | Welcome line | on | |
 | Run-in-background hint | `compact` | `hidden`, `engine` |
+| Rich text | on | off = Claude Code's own Markdown |
+| Heading style | `banner` | `bold`, `underline` |
+| Task list style | `brackets` | `ticks`, `box`, `progress` |
 | Pictures inline | on | |
 | Desktop app wallpaper | `off` | `theme` |
 | System notification for long turns | on, after `30` s | |
@@ -203,7 +217,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 226 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 235 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

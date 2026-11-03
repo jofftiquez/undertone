@@ -344,6 +344,35 @@
         "off",
         "theme"
       ]
+    },
+    "richText": {
+      "type": "boolean",
+      "title": "Rich text",
+      "description": "undertone draws headings, lists and task lists, quotes and alerts, code headers and rules in Claude's replies; off = Claude Code's own drawing",
+      "default": true
+    },
+    "headingStyle": {
+      "type": "string",
+      "title": "Heading style",
+      "description": "banner = a box around H1 and a heavy rule under H2; bold; underline = H1 and H2 underlined",
+      "default": "banner",
+      "options": [
+        "banner",
+        "bold",
+        "underline"
+      ]
+    },
+    "taskStyle": {
+      "type": "string",
+      "title": "Task list style",
+      "description": "brackets [ ] [✓], ticks ○ ✓, box □ ✓, or progress (brackets with a done-count bar above the list)",
+      "default": "brackets",
+      "options": [
+        "brackets",
+        "ticks",
+        "box",
+        "progress"
+      ]
     }
   }
 }

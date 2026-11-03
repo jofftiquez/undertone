@@ -911,8 +911,115 @@ function layoutTable(t: Table, room: number, style: TableStyle): Out[] {
 }
 
 // Splits a reply into markdown runs, fenced code blocks and quotes, each copyable on its own.
-type Part = { kind: 'md' | 'code' | 'quote' | 'table'; md: string; copy: string }
-function splitReply(text: string): Part[] {
+type Part = { kind: 'md' | 'code' | 'quote' | 'table' | 'heading' | 'rule' | 'list'; md: string; copy: string; level?: number; lang?: string }
+// ---------- Rich text ----------
+// undertone draws a reply's blocks itself: headings, lists and task lists, quotes and GitHub
+// alerts, code under a header, rules. Inline text still goes through Claude Code's Markdown, so
+// links stay clickable. Setting: richText (off = Claude Code's own drawing).
+const richText = () => opt<unknown>('richText', true) !== false
+const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/
+const RULE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/
+const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/
+const ALERTS: Record<string, { label: string; ink: string }> = {
+  NOTE: { label: 'Note', ink: 'suggestion' }, TIP: { label: 'Tip', ink: 'success' }, IMPORTANT: { label: 'Important', ink: 'planMode' },
+  WARNING: { label: 'Warning', ink: 'warning' }, CAUTION: { label: 'Caution', ink: 'error' },
+}
+const TASK_MARKS: Record<string, [todo: string, done: string]> = { brackets: ['[ ]', '[✓]'], ticks: ['○', '✓'], box: ['□', '✓'], progress: ['[ ]', '[✓]'] }
+const BULLETS = ['•', '◦', '▪']
+// A list's kind, so a numbered list and a bullet list after a blank line stay two lists.
+const listKind = (line: string) => { const m = LIST_ITEM.exec(line); return !m ? '' : /^\[[ xX]\]\s/.test(m[3]!) ? 'task' : /^\d/.test(m[2]!) ? 'ordered' : 'bullet' }
+type Item = { depth: number; marker: string; task?: 'todo' | 'done'; text: string }
+function listItems(md: string): Item[] {
+  const items: Item[] = []
+  for (const line of md.split('\n')) {
+    const m = LIST_ITEM.exec(line)
+    if (m) {
+      let text = m[3]!
+      let task: Item['task']
+      const t = /^\[([ xX])\]\s+(.*)$/.exec(text)
+      if (t) { task = t[1] === ' ' ? 'todo' : 'done'; text = t[2]! }
+      items.push({ depth: m[1]!.replace(/\t/g, '    ').length, marker: m[2]!, task, text })
+    } else if (items.length && line.trim()) items[items.length - 1]!.text += '\n' + line.trim()
+  }
+  const levels = [...new Set(items.map(it => it.depth))].sort((a, b) => a - b)
+  for (const it of items) it.depth = levels.indexOf(it.depth)
+  return items
+}
+// One rich block, or undefined to leave the part to the drawing it had before.
+function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
+  const { Box, Text, Button, Markdown, Code } = ui
+  const ink = readableOn(th.claude.fill, th.claude.border)
+  const withCopy = (body: any, label: string, what: string, top = false) => {
+    const copy = <Button key={'copy-' + i} plain dimColor label={label} onPress={p => copyText($, part.copy, what, p.surface)} />
+    if (hov) return <Box flexDirection="column">{body}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box>
+    return top ? <Box flexDirection="column"><Box justifyContent="flex-end">{copy}</Box>{body}</Box> : body
+  }
+  if (part.kind === 'heading') {
+    const level = part.level ?? 1
+    const style = String(opt('headingStyle', 'banner'))
+    const color = level <= 2 ? th.claude.label : level === 3 ? ink : th.claude.text
+    const words = (
+      <Text>
+        {cellWords(part.copy).map(sg => <Text bold color={sg.code ? th.user.border : color} italic={sg.italic} underline={style === 'underline' && level <= 2}>{sg.text}</Text>)}
+      </Text>
+    )
+    if (style === 'banner' && level === 1) return <Box marginTop={i ? 1 : 0}><Box borderStyle="round" borderColor={th.claude.border} paddingX={1}>{words}</Box></Box>
+    if (style === 'banner' && level === 2) return <Box flexDirection="column" marginTop={i ? 1 : 0}>{words}<Text color={th.claude.border}>{'━'.repeat(Math.max(3, room))}</Text></Box>
+    return <Box marginTop={i && level <= 3 ? 1 : 0}>{words}</Box>
+  }
+  if (part.kind === 'rule') return <Text color={th.claude.border} dimColor>{'─'.repeat(Math.max(3, room))}</Text>
+  if (part.kind === 'list') {
+    const items = listItems(part.md)
+    const style = String(opt('taskStyle', 'brackets'))
+    const marks = TASK_MARKS[style] ?? TASK_MARKS.brackets!
+    const tasks = items.filter(it => it.task)
+    const done = tasks.filter(it => it.task === 'done').length
+    const width = Math.max(10, Math.min(20, room - 12))
+    const bar = style === 'progress' && tasks.length
+      ? <Text><Text color="success">{'▰'.repeat(Math.round((done / tasks.length) * width))}</Text><Text dimColor>{'▱'.repeat(width - Math.round((done / tasks.length) * width)) + `  ${done}/${tasks.length} done`}</Text></Text>
+      : null
+    const rows = items.map(it => {
+      const mark = it.task ? marks[it.task === 'done' ? 1 : 0] : /^\d/.test(it.marker) ? it.marker : BULLETS[it.depth % BULLETS.length]!
+      return (
+        <Box paddingLeft={it.depth * 2}>
+          <Box width={[...mark].length + 1} flexShrink={0}><Text color={it.task === 'done' ? 'success' : ink}>{mark}</Text></Box>
+          <Box flexGrow={1} flexShrink={1}>
+            {it.task === 'done' ? <Text dimColor strikethrough>{plainCell(it.text)}</Text> : <Markdown text={it.text} />}
+          </Box>
+        </Box>
+      )
+    })
+    return withCopy(<Box flexDirection="column" marginTop={i ? 1 : 0}>{bar}{rows}</Box>, '[ copy list ]', 'list', true)
+  }
+  if (part.kind === 'quote') {
+    const alert = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\n?/i.exec(part.copy)
+    if (alert) {
+      const a = ALERTS[alert[1]!.toUpperCase()]!
+      const rest = part.copy.slice(alert[0].length).trim()
+      return withCopy(
+        <Box flexDirection="column" borderStyle="round" borderColor={a.ink} paddingX={1}>
+          <Text bold color={a.ink}>{a.label}</Text>
+          {rest && <Markdown text={rest} />}
+        </Box>, '[ copy quote ]', 'quote', true)
+    }
+    return withCopy(<Box borderStyle="quote" borderColor={th.claude.border} paddingLeft={1}><Markdown text={part.copy} /></Box>, '[ copy quote ]', 'quote', true)
+  }
+  if (part.kind === 'code') {
+    const copy = <Button key={'copy-' + i} plain dimColor label="[ copy code ]" onPress={p => copyText($, part.copy, 'code', p.surface)} />
+    return (
+      <Box flexDirection="column" marginY={1}>
+        <Box justifyContent="space-between">
+          <Text bold dimColor>{part.lang || 'code'}</Text>
+          {hov ? reveal(Box, hov, scope, 'copy-reveal-' + i, copy) : copy}
+        </Box>
+        <Box paddingLeft={2}><Code source={part.copy} language={part.lang || undefined} wrap="wrap" /></Box>
+      </Box>
+    )
+  }
+  return undefined
+}
+
+function splitReply(text: string, rich = false): Part[] {
   const parts: Part[] = []
   const lines = text.split('\n')
   let md: string[] = []
@@ -925,7 +1032,8 @@ function splitReply(text: string): Part[] {
       const end = close === -1 ? lines.length - 1 : close
       flush()
       const block = lines.slice(i, end + 1)
-      parts.push({ kind: 'code', md: block.join('\n'), copy: lines.slice(i + 1, close === -1 ? lines.length : end).join('\n') })
+      const lang = line.trim().slice(fence[1]!.length).trim().split(/\s+/)[0] ?? ''
+      parts.push({ kind: 'code', md: block.join('\n'), copy: lines.slice(i + 1, close === -1 ? lines.length : end).join('\n'), lang })
       i = end
     } else if (line.includes('|') && TABLE_RULE.test(lines[i + 1] ?? '')) {
       // header row + alignment row, then every following row that has a pipe
@@ -941,6 +1049,26 @@ function splitReply(text: string): Part[] {
       flush()
       const block = lines.slice(i, end + 1)
       parts.push({ kind: 'quote', md: block.join('\n'), copy: block.map(l => l.replace(/^\s*>\s?/, '')).join('\n') })
+      i = end
+    } else if (rich && HEADING.test(line)) {
+      flush()
+      const m = HEADING.exec(line)!
+      parts.push({ kind: 'heading', md: line, copy: m[2]!, level: m[1]!.length })
+    } else if (rich && RULE.test(line)) {
+      flush()
+      parts.push({ kind: 'rule', md: line, copy: line })
+    } else if (rich && LIST_ITEM.test(line)) {
+      // the items, their indented continuation lines, and blank lines between items
+      let end = i
+      while (end + 1 < lines.length) {
+        const next = lines[end + 1]!
+        if (LIST_ITEM.test(next) || (/^\s{2,}\S/.test(next) && !/^\s*(`{3,}|~{3,})/.test(next))) end++
+        else if (!next.trim() && LIST_ITEM.test(lines[end + 2] ?? '') && listKind(lines[end + 2]!) === listKind(lines[i]!)) end++
+        else break
+      }
+      flush()
+      const block = lines.slice(i, end + 1).join('\n')
+      parts.push({ kind: 'list', md: block, copy: block })
       i = end
     } else md.push(line)
   }
@@ -1649,7 +1777,9 @@ export const register: Register = (on, options) => {
       if (head.filter(l => /^\s*(`{3,}|~{3,})/.test(l)).length % 2 === 1) head.push('```')
       shown = head.join('\n')
     }
-    const parts = splitReply(shown)
+    const rich = richText()
+    const parts = splitReply(shown, rich)
+    const room = w - chrome(th.claude, th.padding)
     const hov = hoverButtons(e)
     const scope = 'c:' + foldId
     const pinned = await isPinned($, text)
@@ -1674,11 +1804,12 @@ export const register: Register = (on, options) => {
             ))}
           </Box>
           {parts.map((part, i) => {
+            const drawn = rich ? richPart($, $.ui.resolve(e), part, i, th, room, hov, scope) : undefined
+            if (drawn) return drawn
             if (part.kind === 'md') return <Markdown text={part.md} />
             if (part.kind === 'table') {
               const table = parseTable(part.md)
               if (!table) return <Markdown text={part.md} />
-              const room = w - chrome(th.claude, th.padding)
               const lines = layoutTable(table, room, th.tableStyle)
               const copy = (
                 <Box columnGap={1}>
