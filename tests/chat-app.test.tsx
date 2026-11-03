@@ -1,4 +1,4 @@
-// 0.10 "chat app": reactions, quote-reply, read receipts, typing bubble, quick replies, day / night.
+// 0.10 "chat app": reactions, quote-reply, read receipts, quick replies, day / night.
 import { expect, test } from 'claude-code/testing'
 
 const P = 'undertone'
@@ -28,7 +28,7 @@ function machine(on: any, opts: { selection?: { text: string; requestId?: string
   on('prompt.submit', (_: any, e: any) => { sent.push({ text: e.text, asUser: e.origin?.asUser }); return e })
   on('tool.call', () => ({ result: 'ok' }))
   // Stand-in for Claude Code's own drawing, reached when undertone hands a row back.
-  on('ui.render', ($: any, e: any) => { const { Text } = $.ui.resolve(e); return <Text>ENGINE</Text> })
+  on('ui.render', ($: any, e: any) => { const { Text } = $.ui.resolve(e); return <Text>{e.component === 'Spinner' ? 'LINE ' + (e.props.message ?? e.props.word) : 'ENGINE'}</Text> })
   return { box, sent, store }
 }
 const start = ($: any) => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
@@ -93,20 +93,15 @@ test('read receipts: your latest prompt shows ✓ until Claude starts on it, the
   expect(await receipt()).toBe(' ✓✓')
 })
 
-test('typing bubble: Claude\'s label, what it is doing and moving dots around the engine\'s spinner line', async ($, on) => {
+test('while Claude works: Claude Code\'s own line with the tool count, no bubble of our own', async ($, on) => {
   machine(on)
   await start($)
-  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'Spinner', requestId: 's', props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' } })
-  expect(await ui.find({ type: 'Text', text: /Claude is thinking\s+[●·]/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'ENGINE' })).toBeDefined() // the engine's own line, kept inside
-  await ui.unmount()
-})
-
-test('typing bubble off: just the engine line', { options: { typingBubble: false } }, async ($, on) => {
-  machine(on)
-  await start($)
-  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'Spinner', requestId: 's', props: { word: 'Baking', message: null, suffix: '…', mode: 'responding' } })
-  expect(await ui.find({ type: 'Text', text: /is typing/ })).toBeUndefined()
+  await $.prompt.submit({ text: 'go', wait: false, origin: { kind: 'composer' } })
+  for (const c of ['a', 'b']) await $.tool.call({ tool: 'Bash', command: c })
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'Spinner', requestId: 's', props: { word: 'Baking', message: null, suffix: '…', mode: 'tool-use' } })
+  expect(await ui.find({ type: 'Text', text: 'LINE Baking · 2 tools' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /is (typing|thinking|working)/ })).toBeUndefined()
+  expect(((await ui.findAll({ type: 'Box' })) as any[]).some(b => b.props.borderStyle)).toBe(false)
   await ui.unmount()
 })
 

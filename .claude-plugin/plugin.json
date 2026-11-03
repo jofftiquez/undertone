@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
   "author": {
     "name": "Joff Tiquez",
@@ -293,12 +293,6 @@
         "box",
         "minimal"
       ]
-    },
-    "typingBubble": {
-      "type": "boolean",
-      "title": "Typing bubble while Claude works",
-      "description": "A small Claude bubble (\"Claude is typing ● · ·\") around the working line; off = the plain line",
-      "default": true
     },
     "quickReplies": {
       "type": "string",

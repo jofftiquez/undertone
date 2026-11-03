@@ -1860,36 +1860,14 @@ export const register: Register = (on, options) => {
     }
   })
 
-  // While Claude works: a small Claude bubble, "Claude is typing ● · ·", over the engine's own
-  // spinner line ("Sauteing · 3 tools…", with its time and tokens). The dots move because the
-  // row reads the clock, which redraws it on the clock's tick.
+  // Claude Code's own working line, with the turn's tool count: "Sauteing · 3 tools…".
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
     const n = (await $.state.get(TURN_TOOLS)).value ?? 0
-    const line = await next(n ? { ...e, props: { ...e.props, message: `${e.props.message ?? e.props.word} · ${n} tool${n === 1 ? '' : 's'}` } } : e)
-    if (e.surface !== 'terminal' || opt<unknown>('typingBubble', true) === false) return line
-    const { Box, Text } = $.ui.resolve(e)
-    const th = await themeOf($)
-    const verb = e.props.mode === 'thinking' ? 'is thinking' : e.props.mode === 'tool-use' || e.props.mode === 'tool-input' ? 'is working' : 'is typing'
-    const dots = ['●  ·  ·', '·  ●  ·', '·  ·  ●'][Math.floor((await $.clock.now()) / 400) % 3]!
-    const head = `${sideLabel(th.claude)} ${verb}  ${dots}`
-    // The engine refuses its own line under a sized Box, so the bubble holds only the head and
-    // the engine's line (time, tokens) sits right under it.
-    return (
-      <Box flexDirection="column" marginTop={th.spacing}>
-        <Box width={strWidth(head) + chrome(th.claude, th.padding)} {...bubbleBox(th.claude, th.padding)}>
-          <Text>
-            <Text bold color={th.claude.label}>{sideLabel(th.claude)}</Text>
-            <Text {...timeInk(th.claude)}>{' ' + verb + '  '}</Text>
-            <Text color={readableOn(th.claude.fill, th.claude.border)}>{dots}</Text>
-          </Text>
-        </Box>
-        {line}
-      </Box>
-    )
+    if (!n) return next(e)
+    return next({ ...e, props: { ...e.props, message: `${e.props.message ?? e.props.word} · ${n} tool${n === 1 ? '' : 's'}` } })
   })
 
-  // Quick replies above the prompt once Claude has answered: one press sends it as you.
   // The band above the prompt: who's working ("● Explore · find the config  ○ planner (done)"),
   // then, once Claude has answered, quick replies.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

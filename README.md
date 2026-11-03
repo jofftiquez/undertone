@@ -85,7 +85,6 @@ table.
 - **Reactions**: `[ react ]` on any bubble, then 👍 💖 😂 🤯. They show under the bubble, survive restarts and go into exports; press one again to take it back.
 - **Quote-reply**: select part of Claude's reply and press `[ reply ]`; your prompt starts with it as a `> quote`. With nothing selected, it quotes the reply's first lines.
 - **Read receipts**: your latest prompt shows `✓` until Claude starts on it, then `✓✓`.
-- **Typing bubble**: while Claude works, a small bubble says `Claude is typing ● · ·` (or *thinking*, or *working*) above Claude Code's own line with its time and tokens.
 - **Quick replies**: after Claude answers, `[ Go ahead ] [ Explain more ] [ Shorter, please ]` sit above the prompt; one press sends it as you. Set your own in `/config` (separated by `|`), or `off`.
 - **Light by day, dark by night**: for themes with both versions (messenger, catppuccin, gruvbox, solarized, github, rose-pine), turn on *Light by day, dark by night* and set the hours (default `7-19`).
 
@@ -175,7 +174,6 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Keep last N turns unfolded | `10` | `0` never folds |
 | Fold replies longer than | `15` lines | |
 | Gap divider after | `60` minutes | |
-| Typing bubble | on | off = Claude Code's plain working line |
 | Quick replies | `Go ahead\|Explain more\|Shorter, please` | `off` = none |
 | Light by day, dark by night | off | with *Daytime hours* `7-19` |
 | Welcome line | on | |
@@ -205,7 +203,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 227 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 226 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code
