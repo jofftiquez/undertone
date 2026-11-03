@@ -172,9 +172,12 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 ![Inline math as symbols, the quadratic formula, and a footnote under a short rule](docs/math.png)
 
 - **Math**: inline `$E = mc^2$` reads *E = mc²*, and `$\alpha \le \beta$` reads *α ≤ β* (a price like `$5` stays as written). Display math, `$$…$$` or a ` ```math ` block, reads as text with symbols, `(-b ± √(b²-4ac))/2a`, or as a typeset picture where the terminal draws pictures and [`ratex-render`](https://github.com/erweixin/RaTeX/releases) is on your `PATH` (rename the release's `render` binary). `[ copy latex ]` copies the source.
-- **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply. Click a mark to see its note in a toast; copies keep the plain `¹`.
+- **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply. Click a mark to see its note in a toast; point at a mark or a note and the pair lights up. Copies keep the plain `¹`.
 
-  ![A sentence with two superscript marks, and their notes under a short rule](docs/footnotes.png)
+  <table><tr>
+    <td><img src="docs/footnotes.png" alt="A sentence with two superscript marks, and their notes under a short rule"></td>
+    <td><img src="docs/footnote-hover.png" alt="Pointing at a footnote mark lights the mark and its note together"></td>
+  </tr></table>
 - **Copy without the mouse**: `/undertone copy` copies the last reply, `/undertone copy code` its last code block.
 
 ### Like a chat app
@@ -265,6 +268,12 @@ breaking the bubble.
 
 Everything is in `/config → undertone`. The ones you'll reach for first:
 
+![Your prompt after a ❯ with no frame, tool rows hanging under it with ⎿, a reply with a grid table and a bash block in your own code colours](docs/styles.png)
+
+*Your bubble shape* `chevron`, *Tool row style* `tree`, *Tool output* `quiet`, *Table style* `grid` and your own code colours. With *Grey until read* on, a prompt waits like this until Claude starts on it:
+
+![Your prompt in grey, a dot where the read ticks go](docs/unread.png)
+
 | Setting | Default | |
 |---|---|---|
 | Theme | `default` | Any preset above, or `random` |
@@ -299,6 +308,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Copy buttons | on | off = none anywhere; *Copy buttons on lists and quotes* turns off just theirs |
 | Tool rows | on | off = Claude Code's own |
 | Tool row style | `dim` | `tree` (`⎿` under Claude's sentence), `bright` |
+| Tool output | `full` | `quiet`: reads, searches and read-only shell commands are one row that never opens; edits and failures still do |
 | Running call | `ring` | `blink` |
 | Surfaces | `all` | `terminal`, `desktop`, … where undertone draws |
 | Pictures inline | on | |
@@ -306,7 +316,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
 
-Colours: numbers, paths, headings, bullets, bold and italic text, inline code, links, quote bars, rules, accents, diagrams and their text, table headers, rules and text, diff additions and removals, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme wherever undertone draws the text itself (Claude Code draws code blocks and some Markdown with its own colours).
+Colours: numbers, paths, headings, bullets, bold and italic text, inline code, links, quote bars, rules, accents, diagrams and their text, table headers, rules and text, diff additions and removals, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme wherever undertone draws the text itself (Claude Code draws some Markdown with its own colours). Set any code colour (*text*, *command*, *flag*, *string*, *comment*) and undertone draws code blocks itself, in yours: shell commands, functions and class names in the command colour, `--flags` and keywords in the flag colour.
 
 ## Privacy and side effects
 
@@ -328,7 +338,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 316 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 319 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

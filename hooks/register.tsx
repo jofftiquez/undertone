@@ -703,10 +703,21 @@ function blocksOf(call: Call): Block[] {
 }
 
 // One compact row: "[+] ✓ 3:47 PM  Bash  echo hi", plus its blocks when opened.
+// Calls that only look: reads, searches, fetches, and shell commands that only read and write nothing.
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'WebFetch', 'WebSearch'])
+const READ_SHELL = /^\s*(cd|ls|cat|head|tail|grep|rg|find|pwd|echo|wc|which|file|stat|tree|du|df|git\s+(status|log|diff|show|branch|remote))\b/
+function readOnly(call: Call) {
+  if (READ_TOOLS.has(call.tool)) return true
+  const cmd = call.tool === 'Bash' ? String((call.input as { command?: unknown } | undefined)?.command ?? '') : ''
+  const bare = cmd.replace(/\d?>\s*\/dev\/null|2>&1/g, '') // dropping output writes nothing
+  return !!bare.trim() && !/>|\$\(|`/.test(bare) && !/&/.test(bare.replace(/&&/g, '')) && bare.split(/&&|\|\||[;|]/).every(c => READ_SHELL.test(c))
+}
 async function rowOf($: EngineInterface, call: Call, columns = 80) {
   const id = call.tool_use_id ?? ''
   const toggled = id ? (await $.state.get({ ...OPEN, id })).value : undefined
-  const isOpen = toggled ?? (call.isErrored && !call.isInterrupted) // failures open until folded
+  // toolOutput quiet: what Claude did, not what it read; a read-only call is one row that never opens
+  const quiet = opt<string>('toolOutput', 'full') === 'quiet' && readOnly(call) && !call.isErrored
+  const isOpen = quiet ? false : toggled ?? (call.isErrored && !call.isInterrupted) // failures open until folded
   const t = await timeOf($, id)
   const st = statusOf(call)
   // runningDot blink: ● on and off every half second (reading the clock redraws the row)
@@ -718,7 +729,7 @@ async function rowOf($: EngineInterface, call: Call, columns = 80) {
   // A PNG Claude read shows as a picture under its row.
   const size = call.tool === 'Read' && file && /\.png$/i.test(file) && !running(call) && !call.isErrored && inlineImages() ? await pngFileSize($, file) : undefined
   const preview = size && file ? { file, ...imageCells(size.w, size.h, Math.max(10, columns - 10), 12) } : undefined
-  return { id, isOpen, glyph, color, line, file, preview, blocks: isOpen ? blocksOf(call) : [] }
+  return { id, isOpen, quiet, glyph, color, line, file, preview, blocks: isOpen ? blocksOf(call) : [] }
 }
 
 function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType<typeof rowOf>>[]) {
@@ -731,7 +742,7 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
         <Box flexDirection="column">
           <Box>
             {style === 'tree' && <Text dimColor>{'⎿ '}</Text>}
-            <Button key={'t' + n} label={r.isOpen ? '-' : '+'} onPress={() => $.state.set({ ...OPEN, id: r.id }, !r.isOpen)} />
+            {r.quiet ? <Text>{'     '}</Text> : <Button key={'t' + n} label={r.isOpen ? '-' : '+'} onPress={() => $.state.set({ ...OPEN, id: r.id }, !r.isOpen)} />}
             <Text dimColor={!r.color} color={r.color} bold={style === 'bright'}>{' ' + r.glyph + ' '}</Text>
             <Text dimColor={style !== 'bright'}>{r.line}</Text>
             {r.file && <Button key={'f' + n} plain dimColor label={' ↗ ' + clip(r.file.split(/[\\/]/).pop() ?? r.file, 40)} onPress={() => viewFile($, r.file!)} />}
@@ -1842,6 +1853,45 @@ function pieCircle(chart: Chart, room: number): Seg2[][] | undefined {
   return out
 }
 
+// Code colours. Claude Code's code view has its own; set any code colour and undertone draws code
+// blocks itself with a small per-line tokenizer. ponytail: no multi-line comments or strings;
+// a grammar-based highlighter if that ever matters.
+const CODE_KEYS = ['codeTextColor', 'codeCommandColor', 'codeFlagColor', 'codeStringColor', 'codeCommentColor']
+const ownCode = () => CODE_KEYS.some(k => optColor(k, undefined))
+const KEYWORDS = new Set('const let var function return if else for while do switch case break continue new class extends import from export default async await try catch finally throw def lambda pass raise with as yield fn pub struct enum impl match use mod func package type interface go defer select public private protected static void true false null None True False nil self this in of is not and or end then elif local'.split(' '))
+const isShell = (lang: string) => /^(bash|sh|zsh|fish|shell|console|powershell|ps1|)$/.test(lang)
+const CODE_TOKEN = /(\/\/.*$|#.*$|--\s.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(--?[A-Za-z][\w-]*)|([A-Za-z_$][\w$]*)|(\s+|.)/g
+type CodeKind = 'text' | 'command' | 'flag' | 'string' | 'comment'
+function codeLine(line: string, lang: string): { text: string; kind: CodeKind }[] {
+  const shell = isShell(lang)
+  const hash = shell || /^(py|python|rb|ruby|yaml|yml|toml|r|perl|make|dockerfile)$/i.test(lang)
+  const out: { text: string; kind: CodeKind }[] = []
+  let first = true // a shell line's first word is its command; again after | && ; and $
+  for (const m of line.matchAll(CODE_TOKEN)) {
+    const [t, comment, str, flag, word] = m
+    let kind: CodeKind = 'text'
+    if (comment && (!comment.startsWith('#') || hash) && (!comment.startsWith('--') || /^(sql|lua|haskell|hs)$/i.test(lang))) {
+      out.push({ text: line.slice(m.index), kind: 'comment' }); break
+    } else if (str) kind = 'string'
+    else if (flag && shell) kind = 'flag'
+    else if (word) kind = shell ? (first ? 'command' : 'text') : KEYWORDS.has(word) ? 'flag' : line[m.index + word.length] === '(' || /^[A-Z]/.test(word) ? 'command' : 'text'
+    if (shell && !/^\s+$/.test(t)) first = /^(\||&&|;|\$)$/.test(t) || (first && t === '$')
+    out.push({ text: t, kind })
+  }
+  return out
+}
+function drawCode(ui: ElementTable, th: Theme, src: string, lang: string) {
+  const { Box, Text } = ui
+  const ink: Record<CodeKind, { color?: string; dimColor?: boolean }> = {
+    text: { color: optColor('codeTextColor', th.claude.text) },
+    command: { color: optColor('codeCommandColor', th.claude.label) },
+    flag: { color: optColor('codeFlagColor', 'warning') },
+    string: { color: optColor('codeStringColor', 'success') },
+    comment: optColor('codeCommentColor', undefined) ? { color: optColor('codeCommentColor', undefined) } : { dimColor: true },
+  }
+  return <Box flexDirection="column">{src.split('\n').map(l => <Text>{l ? codeLine(l, lang.toLowerCase()).map(t => <Text {...ink[t.kind]}>{t.text}</Text>) : ' '}</Text>)}</Box>
+}
+
 // One rich block, or undefined to leave the part to the drawing it had before.
 function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button, Markdown, Code } = ui
@@ -1866,13 +1916,17 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     return <Box marginTop={i && level <= 3 ? 1 : 0}>{words}</Box>
   }
   if (part.kind === 'md' && colorText() && plainParagraphs(part.md) && !part.md.includes(FN)) return drawParagraphs($, ui, th, part.md, 'p' + i)
+  if (part.kind === 'md' && part.md.includes(FN) && part.notes && plainParagraphs(part.md.replaceAll(FN, ''))) {
+    const paras = part.md.split(/\n\s*\n/).map(p => p.trim().replace(/\s*\n\s*/g, ' ')).filter(Boolean)
+    return <Box flexDirection="column">{paras.map((p, k) => <Box marginTop={k ? 1 : 0}>{drawMarked($, ui, th, p, part.notes!, scope, `fn-${i}-${k}`)}</Box>)}</Box>
+  }
   if (part.kind === 'md' && part.md.includes(FN)) return noteMd($, Markdown, part.md, part.notes, 'md-' + i)
   if (part.kind === 'rule') return <Text color={optColor('ruleColor', th.claude.border)} dimColor>{'─'.repeat(Math.max(3, room))}</Text>
   if (part.kind === 'notes') {
     return (
       <Box flexDirection="column" marginTop={1}>
         <Text color={th.claude.border} dimColor>{'─'.repeat(Math.min(12, room))}</Text>
-        {part.md.split('\n').map(n => <Markdown text={n} dimColor />)}
+        {part.md.split('\n').map((n, k) => <Box hover={{ scope: noteScope(scope, k + 1), backgroundColor: litBg(th) }}><Markdown text={n} dimColor /></Box>)}
       </Box>
     )
   }
@@ -1943,7 +1997,7 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
           <Text bold dimColor>{part.lang || 'code'}</Text>
           {hov ? reveal(Box, hov, scope, 'copy-reveal-' + i, copy) : copy}
         </Box>
-        <Box paddingLeft={2}><Code source={part.copy} language={part.lang || undefined} wrap="wrap" /></Box>
+        <Box paddingLeft={2}>{ownCode() ? drawCode(ui, th, part.copy, part.lang ?? '') : <Code source={part.copy} language={part.lang || undefined} wrap="wrap" />}</Box>
       </Box>
     )
   }
@@ -2108,6 +2162,30 @@ function noteMd($: EngineInterface, Markdown: ElementTable['Markdown'], text: st
     const note = notes[n - 1]
     if (note) $.ui.toast(`${superscript(String(n))} ${note}`)
   }} />
+}
+
+// A paragraph with footnote marks, word by word: each mark a link (a click shows its note) in a
+// Box that lights with its note while either is pointed at.
+const noteScope = (scope: string, n: number) => `${scope}-fn${n}`.slice(-64)
+// A soft grey behind a lit mark and its note, a step off the background.
+const litBg = (th: Theme) => (/light|latte|dawn/.test(th.name) ? '#e4e7ee' : '#3a3f4b')
+function drawMarked($: EngineInterface, ui: ElementTable, th: Theme, text: string, notes: string[], scope: string, key: string) {
+  const { Box, Text, Markdown } = ui
+  const lit = litBg(th)
+  const out: JSX.Element[] = []
+  text.split(new RegExp(FN_MARK.source)).forEach((piece, j) => {
+    if (j % 2) {
+      const n = fromSuperscript(piece), href = noteHref(n)
+      out.push(
+        <Box hover={{ scope: noteScope(scope, n), backgroundColor: lit }}>
+          <Markdown key={`${key}-m${j}`} text={`[${piece}](${href})`} pressableLinks={[href]} onLinkPress={() => { if (notes[n - 1]) $.ui.toast(`${superscript(String(n))} ${notes[n - 1]}`) }} />
+        </Box>,
+      )
+      return
+    }
+    for (const sg of textWords(piece)) for (const w of sg.text.split(/(?<=\s)/)) if (w) out.push(<Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} color={wordInk(sg, th)}>{w}</Text>)
+  })
+  return <Box flexWrap="wrap">{out}</Box>
 }
 
 function splitReply(text: string, rich = false): Part[] {

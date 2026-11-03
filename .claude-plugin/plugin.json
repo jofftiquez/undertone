@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
   "author": {
     "name": "Joff Tiquez",
@@ -469,6 +469,16 @@
         "bright"
       ]
     },
+    "toolOutput": {
+      "type": "string",
+      "title": "Tool output",
+      "description": "full = any row opens to its output; quiet = reads, searches and read-only shell commands are one row that never opens (edits and failures still do)",
+      "default": "full",
+      "options": [
+        "full",
+        "quiet"
+      ]
+    },
     "runningDot": {
       "type": "string",
       "title": "Running call",
@@ -672,6 +682,36 @@
       "type": "string",
       "title": "Diagram text colour",
       "description": "Labels in diagrams and figures: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "codeTextColor": {
+      "type": "string",
+      "title": "Code text colour",
+      "description": "Plain text in code blocks: a colour (hex, rgb(), ansi256() or a colour name); setting any code colour makes undertone draw code blocks itself",
+      "default": ""
+    },
+    "codeCommandColor": {
+      "type": "string",
+      "title": "Code command colour",
+      "description": "Shell commands, function and class names in code blocks: a colour (hex, rgb(), ansi256() or a colour name); setting any code colour makes undertone draw code blocks itself",
+      "default": ""
+    },
+    "codeFlagColor": {
+      "type": "string",
+      "title": "Code flag colour",
+      "description": "--flags and keywords in code blocks: a colour (hex, rgb(), ansi256() or a colour name); setting any code colour makes undertone draw code blocks itself",
+      "default": ""
+    },
+    "codeStringColor": {
+      "type": "string",
+      "title": "Code string colour",
+      "description": "Strings in code blocks: a colour (hex, rgb(), ansi256() or a colour name); setting any code colour makes undertone draw code blocks itself",
+      "default": ""
+    },
+    "codeCommentColor": {
+      "type": "string",
+      "title": "Code comment colour",
+      "description": "Comments in code blocks: a colour (hex, rgb(), ansi256() or a colour name); setting any code colour makes undertone draw code blocks itself",
       "default": ""
     }
   }
