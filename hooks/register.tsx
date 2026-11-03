@@ -911,7 +911,73 @@ function layoutTable(t: Table, room: number, style: TableStyle): Out[] {
 }
 
 // Splits a reply into markdown runs, fenced code blocks and quotes, each copyable on its own.
-type Part = { kind: 'md' | 'code' | 'quote' | 'table' | 'heading' | 'rule' | 'list'; md: string; copy: string; level?: number; lang?: string; open?: boolean }
+type Part = { kind: 'md' | 'code' | 'quote' | 'table' | 'heading' | 'rule' | 'list' | 'math' | 'notes'; md: string; copy: string; level?: number; lang?: string; open?: boolean }
+// ---------- Math ----------
+// LaTeX as readable text: Greek letters and operators as symbols, x^2 as x², x_i as xᵢ,
+// \frac{a}{b} as a/b, \sqrt{x} as √x, \mathbb{R} as ℝ. What it can't turn into a symbol it
+// leaves as written, so nothing is lost.
+const SUP: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', n: 'ⁿ', i: 'ⁱ', a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', d: 'ᵈ', e: 'ᵉ', k: 'ᵏ', m: 'ᵐ', o: 'ᵒ', p: 'ᵖ', t: 'ᵗ', x: 'ˣ', y: 'ʸ', T: 'ᵀ' }
+const SUB: Record<string, string> = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉', '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎', a: 'ₐ', e: 'ₑ', i: 'ᵢ', j: 'ⱼ', k: 'ₖ', m: 'ₘ', n: 'ₙ', o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', x: 'ₓ' }
+const superscript = (x: string) => [...x].map(ch => SUP[ch] ?? ch).join('')
+const TEX: Record<string, string> = {
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+  cdot: '·', times: '×', div: '÷', pm: '±', mp: '∓', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', approx: '≈', equiv: '≡', sim: '∼', propto: '∝',
+  infty: '∞', sum: '∑', prod: '∏', int: '∫', oint: '∮', partial: '∂', nabla: '∇', to: '→', rightarrow: '→', leftarrow: '←', Rightarrow: '⇒', Leftarrow: '⇐', iff: '⇔', mapsto: '↦',
+  in: '∈', notin: '∉', subset: '⊂', subseteq: '⊆', supset: '⊃', cup: '∪', cap: '∩', emptyset: '∅', forall: '∀', exists: '∃', neg: '¬', land: '∧', lor: '∨', ldots: '…', cdots: '⋯', dots: '…',
+  degree: '°', circ: '∘', ell: 'ℓ', hbar: 'ℏ', prime: '′', angle: '∠', perp: '⊥', parallel: '∥',
+}
+const BB: Record<string, string> = { R: 'ℝ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', C: 'ℂ', P: 'ℙ' }
+function texToText(src: string): string {
+  let i = 0
+  const group = (): string => { // {…} or one token
+    while (src[i] === ' ') i++
+    if (src[i] === '{') { let depth = 0, j = i; for (; j < src.length; j++) { if (src[j] === '{') depth++; else if (src[j] === '}' && --depth === 0) break } const inner = src.slice(i + 1, j); i = j + 1; return texToText(inner) }
+    if (src[i] === '\\') { const m = /^\\([A-Za-z]+|.)/.exec(src.slice(i))!; i += m[0].length; return TEX[m[1]!] ?? m[1]! }
+    return src[i++] ?? ''
+  }
+  const script = (map: Record<string, string>, mark: string) => { const g = group(); return [...g].every(ch => map[ch]) ? [...g].map(ch => map[ch]).join('') : `${mark}(${g})` }
+  let out = ''
+  while (i < src.length) {
+    const ch = src[i]!
+    if (ch === '^') { i++; out += script(SUP, '^') }
+    else if (ch === '_') { i++; out += script(SUB, '_') }
+    else if (ch === '{' || ch === '}') { if (ch === '{') out += group(); else i++ }
+    else if (ch === '\\') {
+      const m = /^\\([A-Za-z]+|.)/.exec(src.slice(i))!
+      i += m[0].length
+      const cmd = m[1]!
+      if (cmd === 'frac' || cmd === 'dfrac' || cmd === 'tfrac') { const a = group(), b = group(); const wrap = (x: string) => ([...x].length > 1 && /[^\w.]/.test(x) ? `(${x})` : x); out += `${wrap(a)}/${wrap(b)}` }
+      else if (cmd === 'sqrt') { let n = ''; if (src[i] === '[') { const j = src.indexOf(']', i); n = superscript(src.slice(i + 1, j)); i = j + 1 } const g = group(); out += `${n}√${[...g].length > 1 ? `(${g})` : g}` }
+      else if (['text', 'mathrm', 'mathbf', 'mathit', 'operatorname', 'textbf', 'mathsf', 'boldsymbol'].includes(cmd)) out += group()
+      else if (cmd === 'mathbb') { const g = group(); out += [...g].map(c => BB[c] ?? c).join('') }
+      else if (['hat', 'bar', 'vec', 'dot', 'tilde', 'overline'].includes(cmd)) { const g = group(); out += g + ({ hat: '\u0302', bar: '\u0304', vec: '\u20d7', dot: '\u0307', tilde: '\u0303', overline: '\u0305' } as Record<string, string>)[cmd] }
+      else if (cmd === 'left' || cmd === 'right' || cmd === 'big' || cmd === 'Big' || cmd === 'displaystyle') { /* sizes: drop */ }
+      else if (cmd === ',' || cmd === ';' || cmd === ':' || cmd === ' ' || cmd === 'quad' || cmd === 'qquad') out += ' '
+      else if (cmd === '\\') out += '; '
+      else out += TEX[cmd] ?? cmd
+    } else { out += ch; i++ }
+  }
+  return out.replace(/\s+/g, ' ').trim()
+}
+// A formula typeset as a picture by `ratex-render` (on PATH), in a private folder; null when
+// there is no renderer, it failed, or this is Windows. ponytail: one render per formula and colour.
+const mathPics = new Map<string, { path: string; w: number; h: number } | null>()
+let hasRenderer: boolean | undefined
+async function mathPicture($: EngineInterface, tex: string, color: string) {
+  const key = color + '|' + tex
+  if (mathPics.has(key)) return mathPics.get(key) ?? undefined
+  if (await windows($)) { mathPics.set(key, null); return undefined }
+  hasRenderer ??= (await run($, ['sh', '-c', 'command -v ratex-render >/dev/null']).catch(() => ({ exitCode: 1 }))).exitCode === 0
+  if (!hasRenderer) { mathPics.set(key, null); return undefined }
+  const r = await run($, ['sh', '-c', 'umask 077; d="$1/undertone-$(id -u)/math/$2"; mkdir -p "$d" && [ -O "$1/undertone-$(id -u)" ] && printf "%s\n" "$3" | ratex-render --output-dir "$d" --color "$4" --background-color transparent --font-size 32 >/dev/null 2>&1 && printf %s "$d/0001.png"',
+    'sh', await tempDir($), textKey(key), tex.replace(/\s*\n\s*/g, ' '), /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#d7dae0']).catch(() => ({ exitCode: 1, stdout: '' }))
+  const path = r.exitCode === 0 ? r.stdout.trim() : ''
+  const size = path ? await pngFileSize($, path) : undefined
+  mathPics.set(key, path && size ? { path, ...size } : null)
+  return mathPics.get(key) ?? undefined
+}
+
 // ---------- Rich text ----------
 // undertone draws a reply's blocks itself: headings, lists and task lists, quotes and GitHub
 // alerts, code under a header, rules. Inline text still goes through Claude Code's Markdown, so
@@ -1070,6 +1136,14 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     return <Box marginTop={i && level <= 3 ? 1 : 0}>{words}</Box>
   }
   if (part.kind === 'rule') return <Text color={th.claude.border} dimColor>{'─'.repeat(Math.max(3, room))}</Text>
+  if (part.kind === 'notes') {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text color={th.claude.border} dimColor>{'─'.repeat(Math.min(12, room))}</Text>
+        {part.md.split('\n').map(n => <Markdown text={n} dimColor />)}
+      </Box>
+    )
+  }
   if (part.kind === 'list') {
     const items = listItems(part.md)
     const style = String(opt('taskStyle', 'brackets'))
@@ -1252,13 +1326,42 @@ function flowRows(flow: Flow, room: number): Seg2[][] | undefined {
 
 function splitReply(text: string, rich = false): Part[] {
   const parts: Part[] = []
+  // Footnotes: [^id] marks become superscript numbers, the notes a block at the end.
+  const notes: string[] = []
+  if (rich && /\[\^[^\]\s]+\]/.test(text)) {
+    const defs = new Map<string, string>()
+    text = text.replace(/^\[\^([^\]\s]+)\]:[ \t]*(.*)$/gm, (_, id: string, note: string) => { defs.set(id, note); return '' })
+    const order: string[] = []
+    text = text.replace(/\[\^([^\]\s]+)\]/g, (m, id: string) => {
+      if (!defs.has(id)) return m
+      if (!order.includes(id)) order.push(id)
+      return superscript(String(order.indexOf(id) + 1))
+    })
+    for (const id of order) notes.push(`${superscript(String(order.indexOf(id) + 1))} ${defs.get(id)}`)
+  }
   const lines = text.split('\n')
   let md: string[] = []
-  const flush = () => { if (md.join('').trim()) parts.push({ kind: 'md', md: md.join('\n'), copy: md.join('\n') }); md = [] }
+  const flush = () => { if (md.join('').trim()) { const t = md.join('\n').replace(/\n+$/, ''); parts.push({ kind: 'md', md: t, copy: t }) } md = [] }
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
     const fence = line.match(/^\s*(`{3,}|~{3,})/)
-    if (fence) {
+    const dollars = rich && /^\s*\$\$/.test(line)
+    if (dollars) {
+      // $$ … $$ on one line, or opening and closing lines of their own
+      const one = /^\s*\$\$(.+)\$\$\s*$/.exec(line)
+      const close = one ? i : lines.findIndex((l, j) => j > i && /\$\$\s*$/.test(l))
+      const end = close === -1 ? lines.length - 1 : close
+      flush()
+      const src = one ? one[1]! : lines.slice(i, end + 1).join('\n').replace(/^\s*\$\$/, '').replace(/\$\$\s*$/, '')
+      parts.push({ kind: 'math', md: lines.slice(i, end + 1).join('\n'), copy: src.trim(), open: close === -1 })
+      i = end
+    } else if (fence && rich && /^\s*(`{3,}|~{3,})\s*(math|latex|tex)\s*$/.test(line)) {
+      const close = lines.findIndex((l, j) => j > i && l.trim().startsWith(fence[1]!))
+      const end = close === -1 ? lines.length - 1 : close
+      flush()
+      parts.push({ kind: 'math', md: lines.slice(i, end + 1).join('\n'), copy: lines.slice(i + 1, close === -1 ? lines.length : end).join('\n').trim(), open: close === -1 })
+      i = end
+    } else if (fence) {
       const close = lines.findIndex((l, j) => j > i && l.trim().startsWith(fence[1]!))
       const end = close === -1 ? lines.length - 1 : close
       flush()
@@ -1304,6 +1407,13 @@ function splitReply(text: string, rich = false): Part[] {
     } else md.push(line)
   }
   flush()
+  if (notes.length) parts.push({ kind: 'notes', md: notes.join('\n'), copy: notes.join('\n') })
+  // Inline $…$ math: italic, symbols as symbols. A price ("$5 and $10") is not math: the text
+  // between must start and end with a non-space and not be followed by a digit.
+  // The copy keeps what Claude wrote; only the drawn text changes.
+  if (rich) for (const part of parts) if (part.kind === 'md' || part.kind === 'list') {
+    part.md = part.md.replace(/(^|[^\\$\w])\$(?=[^\s$])([^$\n]*?[^\s\\$])\$(?![\d$\w])/g, (m, pre: string, body: string) => (/[\\^_{}a-zA-Z=<>]/.test(body) ? `${pre}*${texToText(body)}*` : m))
+  }
   return parts
 }
 
@@ -1722,7 +1832,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await Promise.all([
-      $.command.register({ name: 'undertone', description: 'Undertone: on, off, setup, or help', argumentHint: 'on|off|setup|help' }),
+      $.command.register({ name: 'undertone', description: 'Undertone: on, off, setup, copy, or help', argumentHint: 'on|off|setup|copy|copy code|help' }),
       $.command.register({ name: 'undertone-theme', description: 'Switch the chat bubble theme', argumentHint: Object.keys(THEMES).join('|') }),
       $.command.register({ name: 'undertone-pins', description: 'List pinned (★) chat bubbles' }),
       $.command.register({ name: 'undertone-doctor', description: 'undertone: show what the time index holds' }),
@@ -2022,6 +2132,13 @@ export const register: Register = (on, options) => {
     const rich = richText()
     const parts = splitReply(shown, rich)
     const room = w - chrome(th.claude, th.padding)
+    // A typeset formula needs a real colour: the theme's text where it has one, else dark ink on a
+    // light theme and light ink otherwise (the terminal's own background can't be read).
+    const mathInk = /^#[0-9a-f]{6}$/i.test(th.claude.text ?? '') ? th.claude.text! : /light|latte|dawn/.test(th.name) ? '#333333' : '#d7dae0'
+    const pics = new Map<number, { path: string; w: number; h: number }>()
+    if (rich && e.surface === 'terminal' && opt<unknown>('latexImages', true) !== false && inlineImages()) {
+      for (const [k, part] of parts.entries()) if (part.kind === 'math' && !part.open) { const pic = await mathPicture($, part.copy, mathInk); if (pic) pics.set(k, pic) }
+    }
     const hov = hoverButtons(e)
     const scope = 'c:' + foldId
     const pinned = await isPinned($, text)
@@ -2046,6 +2163,17 @@ export const register: Register = (on, options) => {
             ))}
           </Box>
           {parts.map((part, i) => {
+            if (part.kind === 'math') {
+              const ui = $.ui.resolve(e)
+              const Image = 'Image' in ui ? ui.Image : undefined
+              const pic = pics.get(i)
+              const copy = <Button key={'copy-' + i} plain dimColor label="[ copy latex ]" onPress={p => copyText($, part.copy, 'LaTeX', p.surface)} />
+              const body = pic && Image
+                ? <Image key={'math' + i} source={{ file: pic.path, format: 'png' }} {...imageCells(pic.w, pic.h, room - 2, 6)} alt={texToText(part.copy)} />
+                : <Text italic color={th.claude.text}>{part.copy.split('\n').map(texToText).join('\n')}</Text>
+              const block = <Box paddingLeft={2} marginY={1}>{body}</Box>
+              return hov ? <Box flexDirection="column">{block}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box> : <Box flexDirection="column"><Box justifyContent="flex-end">{copy}</Box>{block}</Box>
+            }
             const drawn = rich ? richPart($, $.ui.resolve(e), part, i, th, room, hov, scope) : undefined
             if (drawn) return drawn
             if (part.kind === 'md') return <Markdown text={part.md} />
@@ -2056,6 +2184,7 @@ export const register: Register = (on, options) => {
               const copy = (
                 <Box columnGap={1}>
                   <Button key={'cells-' + i} plain dimColor label="[ copy as cells ]" onPress={p => copyText($, tableCells(table), 'table as cells', p.surface)} />
+                  <Button key={'art-' + i} plain dimColor label="[ copy art ]" onPress={p => copyText($, layoutTable(table, room, 'box').map(l => l.map(sg => sg.text).join('').trimEnd()).join('\n'), 'table as art', p.surface)} />
                   <Button key={'copy-' + i} plain dimColor label="[ copy table ]" onPress={p => copyText($, part.copy, 'table', p.surface)} />
                 </Box>
               )
@@ -2430,6 +2559,16 @@ export const register: Register = (on, options) => {
       await $.state.set(ENABLED, arg === 'on')
       return { text: arg === 'on' ? 'Undertone on.' : "Undertone off for this session: Claude Code's own look. /undertone on brings it back." }
     }
+    if (arg === 'copy' || arg === 'copy code') {
+      const got = await $.session.messages().catch(() => undefined)
+      const last = got && !('deny' in got) ? [...got].reverse().find(m => m.role === 'assistant' && m.text.trim()) : undefined
+      if (!last) return { text: 'No reply to copy yet.' }
+      if (arg === 'copy') { await copyText($, last.text, 'the last reply'); return { text: 'Copied the last reply.' } }
+      const code = [...splitReply(last.text)].reverse().find(p => p.kind === 'code')
+      if (!code) return { text: 'The last reply has no code block.' }
+      await copyText($, code.copy, 'the last code block')
+      return { text: 'Copied the last code block.' }
+    }
     if (arg === 'setup') {
       await $.state.set(SETUP, { step: 0, draft: {} })
       await $.ui.open({ id: SETUP_PANE, title: 'Undertone setup', focus: true, closeOnEscape: true, rows: 40, columns: 90 })
@@ -2441,6 +2580,7 @@ export const register: Register = (on, options) => {
         '',
         '  /undertone setup          pick theme, shapes and layout with a live preview',
         '  /undertone off | on       Claude Code\'s own look for this session, and back',
+        '  /undertone copy [code]    copy the last reply, or its last code block, without the mouse',
         '  /undertone-theme [name]   theme gallery, or switch theme (reset = /config default)',
         '  /undertone-pins           pinned messages',
         '  /undertone-export [path]  save the chat as Markdown with timestamps',

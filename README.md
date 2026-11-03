@@ -101,6 +101,13 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 - `[ copy source ]` and `[ copy art ]` on each. Other mermaid kinds, and a block still streaming, stay code.
 - So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
 
+### Math, footnotes and copying
+
+- **Math**: inline `$E = mc^2$` reads *E = mc²*, and `$\alpha \le \beta$` reads *α ≤ β* (a price like `$5` stays as written). Display math, `$$…$$` or a ` ```math ` block, reads as text with symbols, `(-b ± √(b²-4ac))/2a`, or as a typeset picture where the terminal draws pictures and [`ratex-render`](https://github.com/erweixin/RaTeX/releases) is on your `PATH` (rename the release's `render` binary). `[ copy latex ]` copies the source.
+- **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply.
+- **Copy without the mouse**: `/undertone copy` copies the last reply, `/undertone copy code` its last code block.
+- **Tables** also get `[ copy art ]`: the drawn, boxed table, for pasting where Markdown doesn't render.
+
 ### Like a chat app
 
 - **Reactions**: `[ react ]` on any bubble, then 👍 💖 😂 🤯. They show under the bubble, survive restarts and go into exports; press one again to take it back.
@@ -173,6 +180,7 @@ breaking the bubble.
 | `/undertone` | Help |
 | `/undertone setup` | Pick theme, bubble style, shapes, padding, spacing, alignment, buttons and time format, with a live preview |
 | `/undertone off` · `/undertone on` | Claude Code's own look for this session, and back |
+| `/undertone copy` · `/undertone copy code` | Copy the last reply, or its last code block |
 | `/undertone-theme [name]` | Theme gallery, or switch theme; `reset` returns to the `/config` choice |
 | `/undertone-pins` | Your pinned messages, in time order |
 | `/undertone-export [path]` | Save the chat as Markdown with timestamps (default: `~/Downloads`) |
@@ -203,6 +211,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Heading style | `banner` | `bold`, `underline` |
 | Task list style | `brackets` | `ticks`, `box`, `progress` |
 | Tell Claude about pictures | on | the note on your prompts |
+| Math as pictures | on | needs `ratex-render`; off = text |
 | Pictures inline | on | |
 | Desktop app wallpaper | `off` | `theme` |
 | System notification for long turns | on, after `30` s | |
@@ -228,7 +237,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 246 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 257 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

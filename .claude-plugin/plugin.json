@@ -379,6 +379,12 @@
       "title": "Tell Claude about pictures",
       "description": "A short note only the model reads, on each prompt you type, saying this terminal draws mermaid flowcharts and charts, figures, task lists and alerts (about 130 tokens)",
       "default": true
+    },
+    "latexImages": {
+      "type": "boolean",
+      "title": "Math as pictures",
+      "description": "Display math ($$…$$, ```math) typeset as a picture when ratex-render is on your PATH and the terminal draws pictures; otherwise math reads as text with symbols",
+      "default": true
     }
   }
 }
