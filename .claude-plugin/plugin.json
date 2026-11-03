@@ -248,11 +248,12 @@
     "timeFormat": {
       "type": "string",
       "title": "Bubble time format",
-      "description": "precise = 4:47:12.345 PM UTC+8, short = 4:47 PM, off = no times",
+      "description": "precise = 4:47:12.345 PM UTC+8, short = 4:47 PM, 24h = 16:47, off = no times",
       "default": "precise",
       "options": [
         "precise",
         "short",
+        "24h",
         "off"
       ]
     },
@@ -563,6 +564,36 @@
       "type": "string",
       "title": "PNG copy background",
       "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "tableHeaderColor": {
+      "type": "string",
+      "title": "Table header colour",
+      "description": "Table header cells: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "tableRuleColor": {
+      "type": "string",
+      "title": "Table rule colour",
+      "description": "Table borders and rules: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "tableTextColor": {
+      "type": "string",
+      "title": "Table text colour",
+      "description": "Plain text in table cells: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "diffAddedColor": {
+      "type": "string",
+      "title": "Diff added colour",
+      "description": "Added lines: their + marks and bars, and the count: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "diffRemovedColor": {
+      "type": "string",
+      "title": "Diff removed colour",
+      "description": "Removed lines: their − marks and bars, and the count: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
       "default": ""
     }
   }

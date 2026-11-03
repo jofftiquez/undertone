@@ -204,7 +204,7 @@ async function themeOf($: EngineInterface, d?: Record<string, unknown>): Promise
     claudeShare: pct('claudeBubbleWidth', 90),
     foldLines: Math.max(3, Number(o('foldLines', 15))),
     gapMs: Math.max(1, Number(o('gapMinutes', 60))) * 60_000,
-    preciseTime: o<string>('timeFormat', 'precise') !== 'short',
+    preciseTime: !['short', '24h'].includes(o<string>('timeFormat', 'precise')),
     foldTurns: Math.max(0, Number(o('foldTurns', 10))),
     tableStyle: (['box', 'rules', 'minimal'].includes(o<string>('tableStyle', 'rules')) ? o<string>('tableStyle', 'rules') : 'rules') as TableStyle,
   }
@@ -319,17 +319,17 @@ function statusOf(p: { isRunning: boolean; isErrored: boolean; isInterrupted: bo
 // ponytail: the module's Date may not know the user's zone, so ask the OS once (`date +%z`).
 let offsetMin: number | undefined = -new Date().getTimezoneOffset()
 
-// Local wall-clock time: "2:41 PM" today, "Nov 2, 2:41 PM" otherwise.
+const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+// Local wall-clock time: "2:41 PM" (or "14:41") today, "Nov 2, 2:41 PM" otherwise.
 const fmt = (ms: number, now: number, off: number) => {
   const d = new Date(ms + off * 60_000)
   const today = new Date(now + off * 60_000)
   const h = d.getUTCHours()
-  const time = `${h % 12 || 12}:${String(d.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+  const time = opt<string>('timeFormat', 'precise') === '24h' ? `${pad(h)}:${pad(d.getUTCMinutes())}` : `${h % 12 || 12}:${String(d.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
   const sameDay = d.toISOString().slice(0, 10) === today.toISOString().slice(0, 10)
   return sameDay ? time : `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${time}`
 }
 // Bubble time: "4:47:12.345 PM UTC+8" (date prefix when not today).
-const pad = (n: number, w = 2) => String(n).padStart(w, '0')
 const zone = (off: number) => 'UTC' + (off < 0 ? '-' : '+') + Math.floor(Math.abs(off) / 60) + (Math.abs(off) % 60 ? ':' + pad(Math.abs(off) % 60) : '')
 const fmtPrecise = (ms: number, now: number, off: number) => {
   const d = new Date(ms + off * 60_000)
@@ -747,7 +747,7 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
                   <Box flexDirection="column">
                     {b.source.split('\n').filter(l => !l.startsWith('@@')).map(l => {
                       const sign = l[0] === '+' ? '+' : l[0] === '-' ? '-' : ' '
-                      const ink = sign === '+' ? 'success' : sign === '-' ? 'error' : undefined
+                      const ink = sign === '+' ? optColor('diffAddedColor', 'success') : sign === '-' ? optColor('diffRemovedColor', 'error') : undefined
                       return opt<string>('diffStyle', 'card') === 'bar'
                         ? <Text><Text color={ink}>{sign === ' ' ? '  ' : '▌ '}</Text><Text dimColor={sign === '-'}>{l.slice(1)}</Text></Text>
                         : <Text><Text color={ink} bold>{sign === '-' ? '−' : sign}</Text><Text>{' ' + l.slice(1)}</Text></Text>
@@ -760,8 +760,8 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
                     <Box justifyContent="space-between">
                       <Text>
                         <Text dimColor>{(b.path ? shortPath(b.path) : 'edit') + '  '}</Text>
-                        <Text color="success">{'+' + (b.adds ?? 0)}</Text>
-                        <Text color="error">{' −' + (b.dels ?? 0)}</Text>
+                        <Text color={optColor('diffAddedColor', 'success')}>{'+' + (b.adds ?? 0)}</Text>
+                        <Text color={optColor('diffRemovedColor', 'error')}>{' −' + (b.dels ?? 0)}</Text>
                       </Text>
                       <Button key={'copy-' + n + '-' + k} plain dimColor label="[ copy ]" onPress={p => copyText($, b.full, 'code', p.surface)} />
                     </Box>
@@ -1234,7 +1234,7 @@ function figureOf(src: string, room: number): { lines: Seg2[][] } | { error: str
 // in eighths of a cell, so close values still draw apart.
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
 const barOf = (cells: number) => { const full = Math.floor(cells), rem = Math.round((cells - full) * 8); return '█'.repeat(full) + (rem === 8 ? '█' : EIGHTHS[rem]!) }
-const SERIES_INKS = ['suggestion', 'warning', 'success', 'permission', 'planMode', 'autoAccept']
+const SERIES_INKS = ['suggestion', 'warning', 'success', 'planMode', 'autoAccept', 'permission'] // permission last: in dark themes it is suggestion's blue
 const unquote = (x: string) => x.trim().replace(/^"(.*)"$/, '$1')
 const listOf = (inner: string) => [...inner.matchAll(/"([^"]*)"|([^,]+)/g)].map(m => (m[1] ?? m[2]!).trim()).filter(Boolean)
 type Chart = { title?: string; rows: { label: string; values: number[] }[]; kinds: ('bar' | 'line')[]; pie?: boolean }
@@ -1802,7 +1802,7 @@ function c4Of(src: string): Model | undefined {
 
 // mermaidAscii: box drawing and blocks as plain ASCII, for terminals or fonts that lack them.
 const ASCII: Record<string, string> = { '─': '-', '━': '=', '┄': '.', '│': '|', '┊': ':', '╭': '+', '╮': '+', '╰': '+', '╯': '+', '┌': '+', '┐': '+', '└': '+', '┘': '+', '├': '+', '┤': '+', '┬': '+', '┴': '+', '┼': '+', '▶': '>', '◀': '<', '▷': '>', '◆': '*', '◇': 'o', '●': 'o', '◉': '@', '○': 'o', '▢': '#', '█': '#', '▏': '|', '↺': '^', '·': '.', '✓': 'v', '✗': 'x', '▲': '^', '▼': 'v' }
-const asciiArt = (t: string) => [...t].map(ch => ASCII[ch] ?? (/[▎▍▌▋▊▉]/.test(ch) ? '#' : ch)).join('')
+const asciiArt = (t: string) => [...t.replace(/(?<=█)▏/g, '▉')].map(ch => ASCII[ch] ?? (/[▎▍▌▋▊▉]/.test(ch) ? '#' : ch)).join('')
 // pieStyle round: the pie as a circle of coloured cells (a cell is twice as tall as wide), the
 // legend beside it, largest slice first.
 function pieCircle(chart: Chart, room: number): Seg2[][] | undefined {
@@ -2184,7 +2184,7 @@ function setupSteps() {
     { key: 'spacing', title: 'Spacing', hint: 'Blank lines between messages.', options: ['preset', 'tight', 'normal', 'airy'] },
     { key: 'userAlign', title: 'Your bubbles', hint: 'right = chat app; left = one column like a log.', options: ['preset', 'right', 'left'] },
     { key: 'buttons', title: 'Bubble buttons', hint: 'hover = ☆ and copy appear only under the pointer (fullscreen); inline = always shown.', options: ['hover', 'inline'] },
-    { key: 'timeFormat', title: 'Time format', hint: 'precise = 4:47:12.345 PM UTC+8; short = 4:47 PM.', options: ['precise', 'short'] },
+    { key: 'timeFormat', title: 'Time format', hint: 'precise = 4:47:12.345 PM UTC+8; short = 4:47 PM; 24h = 16:47.', options: ['precise', 'short', '24h', 'off'] },
   ]
 }
 
@@ -2968,8 +2968,8 @@ export const register: Register = (on, options) => {
                 <Box flexDirection="column" marginY={1}>
                   {lines.map(line => (
                     <Text>
-                      {line.map(sg => sg.rule ? <Text dimColor color={th.claude.border}>{sg.text}</Text>
-                        : <Text bold={sg.head || sg.bold} italic={sg.italic} underline={sg.link} color={sg.head ? th.claude.label : sg.code ? th.user.border : sg.link ? th.user.border : th.claude.text}>{sg.text}</Text>)}
+                      {line.map(sg => sg.rule ? <Text dimColor color={optColor('tableRuleColor', th.claude.border)}>{sg.text}</Text>
+                        : <Text bold={sg.head || sg.bold} italic={sg.italic} underline={sg.link} color={sg.head ? optColor('tableHeaderColor', th.claude.label) : sg.code ? th.user.border : sg.link ? th.user.border : optColor('tableTextColor', th.claude.text)}>{sg.text}</Text>)}
                     </Text>
                   ))}
                 </Box>

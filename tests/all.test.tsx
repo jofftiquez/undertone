@@ -77,6 +77,15 @@ test('times come from the transcript: precise format with timezone', async ($, o
   await ui.unmount()
 })
 
+test('timeFormat 24h: 15:52, no AM or PM', { options: { timeFormat: '24h' } }, async ($, on) => {
+  engine(on, { transcript: TRANSCRIPT })
+  await start($)
+  const ui = await $.ui.mount(prompt('p3', 'third prompt'))
+  expect(await ui.find({ type: 'Text', text: /\b15:52\b/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /PM|UTC/ })).toBeFalsy()
+  await ui.unmount()
+})
+
 test('a long pause draws a "later" divider; a short one does not', async ($, on) => {
   engine(on, { transcript: TRANSCRIPT })
   await start($)

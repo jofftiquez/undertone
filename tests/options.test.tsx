@@ -88,7 +88,7 @@ test('textCopyButtons off: lists and quotes lose theirs, code keeps its own', op
   await ui.unmount()
 })
 
-const BARS = fence('mermaid', 'xychart-beta\n  x-axis [a, b]\n  bar [1, 2]')
+const BARS = fence('mermaid', 'xychart-beta\n  x-axis [a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20]\n  bar [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]')
 test('mermaid off: diagrams stay code', opts({ mermaid: false }), async ($, on) => {
   machine(on); await start($)
   const ui = await reply($, BARS)
@@ -102,6 +102,7 @@ test('mermaidAscii: bars and lines in ASCII', opts({ mermaidAscii: true }), asyn
   const all = (await texts(ui)).map(t => t.text)
   expect(all.some(t => /^#+$/.test(t))).toBe(true)
   expect(all.some(t => /█/.test(t))).toBe(false)
+  expect(all.some(t => /#\|/.test(t))).toBe(false) // a bar's last eighth is #, not |
   await ui.unmount()
 })
 
@@ -132,5 +133,15 @@ test('colours: numbers, headings, bullets and alerts take the colours you set', 
   expect(all.some(t => t.text === 'Title' && t.props.color === '#00ff00')).toBe(true)
   expect(all.some(t => t.text === '•' && t.props.color === '#0000ff')).toBe(true)
   expect(all.some(t => t.text === 'Tip' && t.props.color === '#123456')).toBe(true)
+  await ui.unmount()
+})
+
+test('table colours: header, rules and text take the colours you set', opts({ tableHeaderColor: '#111111', tableRuleColor: '#222222', tableTextColor: '#333333' }), async ($, on) => {
+  machine(on); await start($)
+  const ui = await reply($, '| name | n |\n|---|---|\n| ada | 1 |')
+  const all = await texts(ui)
+  expect(all.some(t => t.text === 'name' && t.props.color === '#111111')).toBe(true)
+  expect(all.some(t => /─/.test(t.text) && t.props.color === '#222222')).toBe(true)
+  expect(all.some(t => t.text === 'ada' && t.props.color === '#333333')).toBe(true)
   await ui.unmount()
 })
