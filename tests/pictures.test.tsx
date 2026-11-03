@@ -112,7 +112,7 @@ test('flowchart with a branch and a loop: a tree with edge labels and ↺', { op
 test('a mermaid kind undertone does not draw, or a block still streaming, stays code', { options: OPTS }, async ($, on) => {
   machine(on)
   await start($)
-  let ui = await mount($, fence('mermaid', 'sequenceDiagram\n  A->>B: hi'))
+  let ui = await mount($, fence('mermaid', 'gantt\n  title Plan\n  section A\n  Task :a1, 2026-01-01, 3d'))
   expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.language).toBe('mermaid')
   await ui.unmount()
   ui = await mount($, '```mermaid\nxychart-beta\n  bar [1, 2') // no closing fence yet
@@ -144,4 +144,27 @@ test('the note can be turned off', { options: { diagramHints: false } }, async (
   await start($)
   await $.prompt.submit({ text: 'explain the flow', wait: false, origin: { kind: 'composer' } })
   expect(sent.at(-1)?.context?.some(c => /```figure blocks/.test(c)) ?? false).toBe(false)
+})
+
+test('sequence diagram: a box per participant, lifelines, arrows with their text, dashed replies', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'sequenceDiagram\n  participant C as Client\n  participant S as Server\n  C->>S: GET /users\n  Note over S: checks the cache\n  S-->>C: 200 OK'))
+  const all = await lines(ui)
+  expect(all).toContain('Client')
+  expect(all).toContain('Server')
+  expect(all).toContain('GET /users')
+  expect(all.some(t => /^─+▶$/.test(t))).toBe(true) // the request, left to right
+  expect(all.some(t => /^◀┄+$/.test(t))).toBe(true) // the reply, dashed, right to left
+  expect(all.some(t => t.includes('✎ checks the cache'))).toBe(true)
+  expect((await ui.findAll({ type: 'Code' })).length).toBe(0)
+  await ui.unmount()
+})
+
+test('a sequence diagram too wide for the bubble stays code', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'sequenceDiagram\n  A->>B: ' + 'a very long message '.repeat(8)))
+  expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.language).toBe('mermaid')
+  await ui.unmount()
 })

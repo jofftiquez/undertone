@@ -1108,10 +1108,87 @@ function flowOf(src: string): Flow | undefined {
 // What the note on your prompts tells Claude (about 130 tokens).
 const PICTURE_HINT = [
   'This terminal draws, inside your replies: GitHub-flavoured markdown (headings, nested and task lists, > [!NOTE]/[!TIP]/[!WARNING] alerts);',
-  '```mermaid flowcharts (graph LR or TD, plain nodes and edges, no subgraphs), xychart-beta bar and line charts, and pie charts;',
+  '```mermaid flowcharts (graph LR or TD, plain nodes and edges, no subgraphs), sequenceDiagram, xychart-beta bar and line charts, and pie charts;',
   'and ```figure blocks, drawn exactly as written, where {accent:…} {warn:…} {ok:…} {note:…} {dim:…} {strong:…} colour a run',
   '(one-column glyphs only, at most 74 columns). Use a picture when it explains better than prose; keep short answers plain.',
 ].join(' ')
+
+// Sequence diagrams: a box per participant over its lifeline, a message as an arrow between
+// lifelines with its text above (dashed for a reply), notes and loop/alt/opt labels as dim lines.
+type Seq = { names: string[]; label: Map<string, string>; steps: ({ from: string; to: string; text: string; dashed: boolean } | { note: string })[] }
+function seqOf(src: string): Seq | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (!/^sequenceDiagram\b/.test(lines[0] ?? '')) return undefined
+  const seq: Seq = { names: [], label: new Map(), steps: [] }
+  const add = (id: string, label?: string) => { if (!seq.label.has(id)) { seq.names.push(id); seq.label.set(id, id) } if (label) seq.label.set(id, label) }
+  for (const l of lines.slice(1)) {
+    const p = /^(participant|actor)\s+(\S+)(?:\s+as\s+(.+))?$/.exec(l)
+    if (p) { add(p[2]!, p[3]?.trim()); continue }
+    const m = /^([^\s\-+]+?)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*[+-]?([^\s:]+?)\s*:\s*(.*)$/.exec(l)
+    if (m) { add(m[1]!); add(m[3]!); seq.steps.push({ from: m[1]!, to: m[3]!, text: m[4]!.trim(), dashed: m[2]!.startsWith('--') }); continue }
+    const n = /^Note\s+(?:over|left of|right of)\s+[^:]+:\s*(.*)$/i.exec(l)
+    if (n) { seq.steps.push({ note: '✎ ' + n[1]!.trim() }); continue }
+    const b = /^(loop|alt|else|opt|par|and|critical|break|rect)\b\s*(.*)$/.exec(l)
+    if (b) { seq.steps.push({ note: `[${b[1]}${b[2] ? ' ' + b[2] : ''}]` }); continue }
+    if (/^(end|autonumber|activate|deactivate|title)\b/.test(l)) continue
+    return undefined // something this drawing doesn't know: leave it code
+  }
+  return seq.names.length >= 2 && seq.steps.length ? seq : undefined
+}
+function seqRows(seq: Seq, room: number): Seg2[][] | undefined {
+  const n = seq.names.length
+  const names = seq.names.map(id => seq.label.get(id)!)
+  const idx = (id: string) => seq.names.indexOf(id)
+  // the gap between neighbouring lifelines: room for both boxes and every message between them
+  const gaps = Array.from({ length: n - 1 }, (_, k) => Math.ceil((strWidth(names[k]!) + 4) / 2) + Math.ceil((strWidth(names[k + 1]!) + 4) / 2) + 2)
+  for (const st of seq.steps) {
+    if (!('from' in st)) continue
+    const a = Math.min(idx(st.from), idx(st.to)), b = Math.max(idx(st.from), idx(st.to))
+    const need = strWidth(st.text) + 4
+    if (a === b) { if (a < n - 1) gaps[a] = Math.max(gaps[a]!, need + 3); continue }
+    const have = gaps.slice(a, b).reduce((x, y) => x + y, 0)
+    if (have < need) gaps[b - 1] = gaps[b - 1]! + need - have
+  }
+  const left = Math.ceil((strWidth(names[0]!) + 4) / 2)
+  const centers = [left]
+  for (const g of gaps) centers.push(centers.at(-1)! + g)
+  const width = centers.at(-1)! + Math.ceil((strWidth(names[n - 1]!) + 4) / 2) + 1
+  if (width > room) return undefined
+  // a row as cells; each cell has a role, then runs of one role become segments
+  const blank = () => ({ ch: Array<string>(width).fill(' '), role: Array<string | undefined>(width).fill(undefined) })
+  const put = (row: ReturnType<typeof blank>, at: number, text: string, role?: string) => { [...text].forEach((c, k) => { if (at + k >= 0 && at + k < width) { row.ch[at + k] = c; row.role[at + k] = role } }) }
+  const segs = (row: ReturnType<typeof blank>): Seg2[] => {
+    const out: Seg2[] = []
+    row.ch.forEach((c, k) => { const last = out.at(-1); if (last && last.role === row.role[k]) last.text += c; else out.push({ text: c, role: row.role[k] }) })
+    return out
+  }
+  const inks = seq.names.map((_, k) => 'ink:' + SERIES_INKS[k % SERIES_INKS.length])
+  const lifelines = (row: ReturnType<typeof blank>) => centers.forEach(c => put(row, c, '│', 'dim'))
+  const rows: Seg2[][] = []
+  const boxes = [blank(), blank(), blank()]
+  names.forEach((nm, k) => {
+    const w = strWidth(nm) + 2, at = centers[k]! - Math.floor(w / 2) - 1
+    put(boxes[0]!, at, '╭' + '─'.repeat(w) + '╮', inks[k]); put(boxes[1]!, at, '│ ', inks[k]); put(boxes[1]!, at + 2, nm, 'strong'); put(boxes[1]!, at + 2 + strWidth(nm), ' │', inks[k]); put(boxes[2]!, at, '╰' + '─'.repeat(w) + '╯', inks[k])
+  })
+  boxes.forEach(r => rows.push(segs(r)))
+  for (const st of seq.steps) {
+    if (!('from' in st)) { const r = blank(); lifelines(r); put(r, centers[0]! + 2, st.note, 'dim'); rows.push(segs(r)); continue }
+    const a = centers[idx(st.from)]!, b = centers[idx(st.to)]!
+    const label = blank(); lifelines(label)
+    const arrow = blank(); lifelines(arrow)
+    if (a === b) {
+      put(label, a + 2, st.text, 'note')
+      put(arrow, a, '├─↺', 'accent')
+    } else {
+      const lo = Math.min(a, b), hi = Math.max(a, b)
+      put(label, lo + Math.max(1, Math.floor((hi - lo - strWidth(st.text)) / 2)), st.text, 'note')
+      put(arrow, lo + 1, (st.dashed ? '┄' : '─').repeat(hi - lo - 1), 'accent')
+      put(arrow, b > a ? hi - 1 : lo + 1, b > a ? '▶' : '◀', 'accent')
+    }
+    rows.push(segs(label), segs(arrow))
+  }
+  return rows
+}
 
 // One rich block, or undefined to leave the part to the drawing it had before.
 function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
@@ -1187,7 +1264,7 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
   if (part.kind === 'code') {
     const copy = <Button key={'copy-' + i} plain dimColor label="[ copy code ]" onPress={p => copyText($, part.copy, 'code', p.surface)} />
     return (
-      <Box flexDirection="column" marginY={1}>
+      <Box flexDirection="column" marginTop={i ? 1 : 0}>
         <Box justifyContent="space-between">
           <Text bold dimColor>{part.lang || 'code'}</Text>
           {hov ? reveal(Box, hov, scope, 'copy-reveal-' + i, copy) : copy}
@@ -1216,9 +1293,12 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
   } else {
     const chart = chartOf(part.copy)
     const flow = chart ? undefined : flowOf(part.copy)
+    const seq = chart || flow ? undefined : seqOf(part.copy)
     if (chart) rows = chartRows(chart, room)
     else if (flow) rows = flowRows(flow, room)
+    else if (seq) rows = seqRows(seq, room)
     else return undefined // a mermaid kind undertone does not draw: Claude Code's code block
+    if (!rows) return undefined // too wide for the bubble: the source stays readable as code
   }
   if (!rows) {
     return (
@@ -2110,7 +2190,8 @@ export const register: Register = (on, options) => {
     // A picture's source is short and its drawing wide: a reply with one takes its whole share.
     const w = /^\s*(`{3,}|~{3,})\s*(mermaid|figure)\b/m.test(text) && richText()
       ? Math.max(12, Math.floor((e.viewport?.columns ?? 80) * th.claudeShare))
-      : bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ reply ] [ react ] [ copy ]`, e.viewport?.columns, th.claudeShare, chrome(th.claude, th.padding))
+      // code draws indented by 2, so a reply with a code block needs those 2 cells more
+      : bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ reply ] [ react ] [ copy ]`, e.viewport?.columns, th.claudeShare, chrome(th.claude, th.padding) + (/^\s*(`{3,}|~{3,})/m.test(text) && richText() ? 2 : 0))
     const FOLD_LINES = th.foldLines
     const lines = text.split('\n')
     const foldId = `${e.requestId ?? ''}:${text.length}`

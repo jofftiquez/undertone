@@ -148,3 +148,13 @@ test('richText off: Claude Code draws the Markdown as before', { options: { ...O
   expect((await all(ui, 'Code')).length).toBe(0)
   await ui.unmount()
 })
+
+test('a reply with code is 2 cells wider, so its longest code line does not wrap', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const line = 'console.log(greet(ada)) // Hello, Ada! You are on the team plan.'
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'AssistantMessage', requestId: 'a1', props: { text: '```ts\n' + line + '\n```', isFirstOfReply: true }, viewport: { columns: 200, rows: 60 } } as any)
+  const bubble = (await all(ui, 'Box')).find(b => b.key === 'bubble')
+  expect(bubble.props.width).toBeGreaterThanOrEqual(line.length + 2 + 4) // the line, its indent, border and padding
+  await ui.unmount()
+})
