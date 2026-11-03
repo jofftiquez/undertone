@@ -308,10 +308,9 @@ async function msOf($: EngineInterface, id: string | undefined, text?: string) {
   const times = (await $.state.get(TIMES)).value ?? {}
   let ms = (id && times[id]) || (text && times[textKey(text)]) || undefined
   if (ms === undefined && id) ms = (await $.state.get({ ...STAMPS, id })).value
-  if (ms === undefined && text) ms = (await $.state.get({ ...STAMPS, id: stampKey(text) })).value
+  if (ms === undefined && text) ms = (await $.state.get({ ...STAMPS, id: textKey(text) })).value
   return ms
 }
-function stampKey(text: string) { return textKey(text) }
 async function timeOf($: EngineInterface, id: string | undefined, text?: string, precise = false) {
   if (offsetMin === undefined) return ''
   const ms = await msOf($, id, text)
@@ -382,16 +381,14 @@ function indexLine(line: string) {
     }
   }
 }
-async function indexTranscriptInner($: EngineInterface, dbg: Record<string, unknown>) {
+async function indexTranscriptInner($: EngineInterface) {
   if (!transcriptPath) {
     transcriptPath = await findTranscript($)
     if (!transcriptPath) return // not written yet; the next index tries again
   }
-  dbg.path = transcriptPath
   // A file shorter than what was read was replaced or rewritten: start over.
   const size = (await $.fs.stat(transcriptPath).catch(() => ({ size: readOffset }))).size
   if (size < readOffset) { readOffset = 0; idx.times = {}; idx.prev = {}; idx.images = {}; idx.lastPrompt = 0; idx.prompts = [] }
-  dbg.fromOffset = readOffset
   for (;;) {
     const chunk = await readChunk($, transcriptPath, readOffset)
     if (!chunk) break
@@ -407,8 +404,6 @@ async function indexTranscriptInner($: EngineInterface, dbg: Record<string, unkn
     for (const line of complete.split('\n')) if (line) indexLine(line)
     if (!full) break
   }
-  dbg.toOffset = readOffset
-  dbg.times = Object.keys(idx.times).length
   await $.state.set(TIMES, { ...idx.times })
   await $.state.set(PREV, { ...idx.prev })
   // Fold point: the first of the last N prompts; everything before it folds.
@@ -424,12 +419,9 @@ async function indexTranscriptInner($: EngineInterface, dbg: Record<string, unkn
 }
 
 let indexing: Promise<void> = Promise.resolve()
-function indexTranscript($: EngineInterface, why = '') {
-  indexing = indexing.then(async () => {
-    const dbg: Record<string, unknown> = { why, at: new Date().toISOString() }
-    // dbg collects what the read found; log it here when debugging.
-    try { await indexTranscriptInner($, dbg) } catch (err) { dbg.error = String(err) }
-  })
+function indexTranscript($: EngineInterface) {
+  // ponytail: a failed read is retried by the next index; /undertone-doctor shows what it holds.
+  indexing = indexing.then(() => indexTranscriptInner($).catch(() => {}))
   return indexing
 }
 
@@ -895,13 +887,13 @@ async function importLegacyPins($: EngineInterface, sid: string) {
 // ---------- Bookmarks ----------
 type Pin = { who: string; text: string; ms?: number }
 async function starButton($: EngineInterface, Button: any, who: string, text: string, ms: number | undefined) {
-  const key = stampKey(text)
+  const key = textKey(text)
   const isPinned = !!((await $.state.get(PINS)).value ?? {})[key]
   // ponytail: ☆/★ are ambiguous-width (2 cells in some terminals, counted as 1), so the hover highlight can cover half; ✧/✦ avoid it but read too small.
   return <Button key={'star-' + key} plain dimColor={!isPinned} label={isPinned ? ' ★ ' : ' ☆ '} onPress={() => togglePin($, key, { who, text, ms })} />
 }
 async function isPinned($: EngineInterface, text: string) {
-  return !!((await $.state.get(PINS)).value ?? {})[stampKey(text)]
+  return !!((await $.state.get(PINS)).value ?? {})[textKey(text)]
 }
 // Buttons shown only while the pointer is over the bubble (scope), overlaid top-right so
 // they take no row. Hover needs a terminal that reports the mouse (fullscreen layout);
@@ -975,7 +967,7 @@ async function exportChat($: EngineInterface, target: string) {
   for (const m of msgs) {
     const text = m.text.trim()
     if (!text || (m.role === 'user' && m.toolResults?.length)) continue
-    const ms = fresh[textKey(text)] ?? idx.times[textKey(text)] ?? ((await $.state.get({ ...STAMPS, id: stampKey(text) })).value)
+    const ms = fresh[textKey(text)] ?? idx.times[textKey(text)] ?? ((await $.state.get({ ...STAMPS, id: textKey(text) })).value)
     if (ms) timed++
     const when = ms && offsetMin !== undefined ? ` · ${fmtPrecise(ms, now, offsetMin)}` : ''
     out.push(`### ${m.role === 'user' ? 'You' : 'Claude'}${when}`, '', text, '')
@@ -1021,7 +1013,7 @@ export const register: Register = (on, options) => {
       : await run($, ['date', '+%z']).catch(() => ({ stdout: '' }))
     const m = stdout.trim().match(/^([+-])(\d\d):?(\d\d)$/)
     if (m) offsetMin = (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]))
-    await indexTranscript($, 'start').catch(() => {})
+    await indexTranscript($).catch(() => {})
     return next(e)
   })
 
@@ -1031,13 +1023,13 @@ export const register: Register = (on, options) => {
     await $.state.set({ ...STAMPS, id: e.uuid }, now)
     if (e.door === 'prompt' || e.door === 'response') {
       const text = e.message.content.filter(b => b.type === 'text').map(b => ('text' in b ? String(b.text) : '')).join('\n')
-      if (text.trim()) await $.state.set({ ...STAMPS, id: stampKey(text) }, now)
+      if (text.trim()) await $.state.set({ ...STAMPS, id: textKey(text) }, now)
     }
     const stored = await next(e)
     if (e.door === 'prompt' || e.door === 'response') {
-      void indexTranscript($, 'append').catch(() => {})
+      void indexTranscript($).catch(() => {})
       // ponytail: the transcript file is flushed a moment after the row is stored; 1s covers it.
-      $.clock.after(1000, () => void indexTranscript($, 'append+1s').catch(() => {}))
+      $.clock.after(1000, () => void indexTranscript($).catch(() => {}))
     }
     return stored
   })
@@ -1067,9 +1059,9 @@ export const register: Register = (on, options) => {
         outTok: u ? u.output_tokens : 0,
         usd: usd !== undefined && turnUsdStart !== undefined ? usd - turnUsdStart : undefined,
       }
-      const turns = { ...((await $.state.get(TURNS)).value ?? {}) }
-      turns[String(Math.round(e.durationMs))] = summary
-      await $.state.set(TURNS, turns)
+      const turns = { ...((await $.state.get(TURNS)).value ?? {}), [String(Math.round(e.durationMs))]: summary }
+      // Keep the latest 200; older rows sit far up the fold anyway.
+      await $.state.set(TURNS, Object.fromEntries(Object.entries(turns).sort((a, b) => b[1].endMs - a[1].endMs).slice(0, 200)))
       const longMs = Math.max(1, Number(opt('notifyAfterSeconds', 30))) * 1000
       if (e.durationMs > longMs && !e.isAborted) {
         const msg = `Finished in ${fmtDuration(e.durationMs)} · ${turnTools} tool${turnTools === 1 ? '' : 's'}${turnFailed ? ` · ${turnFailed} failed` : ''}`
@@ -1121,7 +1113,7 @@ export const register: Register = (on, options) => {
     const divider = ms !== undefined && prevMs !== undefined && offsetMin !== undefined ? dividerOf(ms, prevMs, await $.clock.now(), offsetMin, th.gapMs) : ''
     if (!e.props.isExpanded && (await isFolded($, ms))) return <Box />
     const hov = hoverButtons(e)
-    const scope = 'p:' + stampKey(e.props.text)
+    const scope = 'p:' + textKey(e.props.text)
     const pinned = await isPinned($, e.props.text)
     const star = await starButton($, Button, 'You', e.props.text, ms)
     // At the fold point: a marker to show / re-fold the earlier turns.

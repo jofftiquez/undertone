@@ -4,6 +4,7 @@
     "name": "Joff Tiquez",
     "url": "https://github.com/jofftiquez"
   },
+  "description": "undertone: the conversation, without the noise. A Claude Code mod that draws your chat as bubbles with timestamps and folds tool calls into a quiet line.",
   "plugins": [
     {
       "name": "undertone",
