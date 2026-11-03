@@ -64,6 +64,9 @@ Works on **macOS, Linux and Windows**. Requires a Claude Code build with mod sup
 - `[ + ]` opens a call with its **highlighted** command, diff, file or output, and a `[ copy ]` button.
 - Grouped calls fold into one summary row.
 - An opened edit is a **diff card**: the file and its `+N −M` counts over the change, in a rounded frame (*Diff style* `plain` drops the frame).
+
+  ![An opened edit as a diff card: src/app.ts +1 −1 over the changed line](docs/diff-card.png)
+
 - File paths open a **side panel** with the file, highlighted, and an *Open in editor* button that always opens a text editor.
 - A **turn summary** after each reply: `· Baked 42s · 5 tools · 38k in / 1.2k out · $0.041 · 1 failed`.
 - While Claude works, the spinner counts tools live: `Sauteing · 3 tools…`
@@ -87,6 +90,8 @@ Five ways to copy a table, in the row above it, `copy [ md ] [ cells ] [ html ] 
 | `[ art ]` | The drawn, boxed table as text | Anywhere Markdown doesn't render |
 | `[ png ]` | A picture of the drawn table, in the theme's colours | Slides, docs, chat |
 
+![Pointing at a reply shows its buttons: ☆, reply, react and copy on the bubble, the copy row over the table, and copy code on the code block](docs/copy.png)
+
 `[ html ]` and `[ png ]` need the computer's own clipboard: `[ html ]` works on macOS, Windows, and Linux with
 [CopyQ](https://copyq.readthedocs.io/) running; `[ png ]` on macOS and Windows. Elsewhere, and over SSH, they copy
 text and say so. Pictures (charts, diagrams, figures) get `copy [ source ] [ art ] [ png ]`.
@@ -105,6 +110,9 @@ Claude's replies draw block by block, in the theme's colours:
 - **Numbers and paths stand out** in plain paragraphs and list items: numbers, versions (`v2.14.0`), durations (`250ms`) and percentages in amber, paths (`~/src/app.ts`, `./out/report.md`) in their own colour, `~~struck~~` struck through. A paragraph with a link stays Claude Code's own, so the link stays clickable. *Colour numbers and paths* off turns this off.
 - **Right to left**: a paragraph or list item in Hebrew, Arabic or another right-to-left script is right-aligned, with its bullet on the right.
 - **Side by side**: tables and pictures that follow each other share a row when they fit, and stack when they don't.
+
+![Numbers and paths in colour, a Hebrew line right-aligned, and two tables side by side](docs/text-layout.png)
+
 - *Rich text* off gives Claude Code's drawing back.
 
 ![A quote with an accent bar, a TypeScript block under its language header, and a numbered list](docs/code.png)
@@ -121,6 +129,9 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
   <tr>
     <td><img src="docs/sequence.png" alt="A sequence diagram: You, Claude and Tools as boxes over lifelines, with request and reply arrows"></td>
     <td><img src="docs/figure.png" alt="A figure: a retry racing a timeout on a time axis, in colour"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/gantt.png" alt="A gantt chart: tasks as bars on a date axis, done in green, active in amber, a milestone diamond at the end"></td>
   </tr>
 </table>
 
@@ -275,7 +286,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 274 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 275 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
