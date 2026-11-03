@@ -172,7 +172,7 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 ![Inline math as symbols, the quadratic formula, and a footnote under a short rule](docs/math.png)
 
 - **Math**: inline `$E = mc^2$` reads *E = mc²*, and `$\alpha \le \beta$` reads *α ≤ β* (a price like `$5` stays as written). Display math, `$$…$$` or a ` ```math ` block, reads as text with symbols, `(-b ± √(b²-4ac))/2a`, or as a typeset picture where the terminal draws pictures and [`ratex-render`](https://github.com/erweixin/RaTeX/releases) is on your `PATH` (rename the release's `render` binary). `[ copy latex ]` copies the source.
-- **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply.
+- **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply. Click a mark to see its note in a toast; copies keep the plain `¹`.
 
   ![A sentence with two superscript marks, and their notes under a short rule](docs/footnotes.png)
 - **Copy without the mouse**: `/undertone copy` copies the last reply, `/undertone copy code` its last code block.
@@ -269,10 +269,11 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 |---|---|---|
 | Theme | `default` | Any preset above, or `random` |
 | Bubble style | `preset` | `framed`, `filled` |
-| Your / Claude's bubble shape | `preset` | `rounded`, `sharp`, `double`, `bold`, `dashed`, `ascii`, `bar`, `none` |
+| Your / Claude's bubble shape | `preset` | `rounded`, `sharp`, `double`, `bold`, `dashed`, `ascii`, `bar`, `none`; yours also `chevron` (`❯` before it, no frame) |
 | Bubble buttons | `hover` | `inline` to always show ☆ and copy |
-| Bubble labels | on | off = frames only, no names or icons |
-| Table style | `rules` | `box`, `minimal` |
+| Bubble labels | `on` | `small` = names without icons; `off` = frames only |
+| Grey until read | off | your latest prompt stays grey, a dot blinking, until Claude starts on it |
+| Table style | `rules` | `box` (or `grid`), `minimal` |
 | Time format | `precise` | `short`, `24h`, `off` |
 | Keep last N turns unfolded | `10` | `0` never folds |
 | Fold replies longer than | `15` lines | |
@@ -283,6 +284,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Welcome line | on | |
 | Run-in-background hint | `compact` | `hidden`, `engine` |
 | Rich text | on | off = Claude Code's own Markdown |
+| Right to left | `auto` | `off` |
 | Colour numbers and paths | on | |
 | Click paths in replies | on | opens them in the file viewer |
 | Heading style | `banner` | `bold`, `underline`, `uppercase` |
@@ -296,6 +298,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Diff style | `card` | `full`, `marks`, `bar` |
 | Copy buttons | on | off = none anywhere; *Copy buttons on lists and quotes* turns off just theirs |
 | Tool rows | on | off = Claude Code's own |
+| Tool row style | `dim` | `tree` (`⎿` under Claude's sentence), `bright` |
 | Running call | `ring` | `blink` |
 | Surfaces | `all` | `terminal`, `desktop`, … where undertone draws |
 | Pictures inline | on | |
@@ -303,7 +306,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
 
-Colours: numbers, paths, headings, bullets, diagrams, table headers, rules and text, diff additions and removals, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme.
+Colours: numbers, paths, headings, bullets, bold and italic text, inline code, links, quote bars, rules, accents, diagrams and their text, table headers, rules and text, diff additions and removals, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme wherever undertone draws the text itself (Claude Code draws code blocks and some Markdown with its own colours).
 
 ## Privacy and side effects
 
@@ -325,7 +328,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 306 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 316 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

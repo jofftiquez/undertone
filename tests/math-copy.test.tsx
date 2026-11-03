@@ -24,7 +24,8 @@ function machine(on: any, opts: { renderer?: boolean; messages?: object[] } = {}
   on('fs.list', () => ({ value: [] }))
   on('fs.read', () => ({ value: { base64: pngHeader(490, 186) } }))
   on('store.get', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
+  const toasts: string[] = []
+  on('ui.toast', (_: any, e: any) => { toasts.push(typeof e === 'string' ? e : e.text); return { value: undefined } })
   on('ui.copy', (_: any, e: any) => { copies.push(e.text); return { value: { isCopied: true } } })
   on('process.run', (_: any, e: any) => {
     const argv: string[] = e.argv ?? []
@@ -35,7 +36,7 @@ function machine(on: any, opts: { renderer?: boolean; messages?: object[] } = {}
     return { value: { exitCode: 0, stdout: '+0800\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.render', ($: any, e: any) => { const { Text } = $.ui.resolve(e); return <Text>ENGINE</Text> })
-  return { copies, runs }
+  return { copies, runs, toasts }
 }
 const start = ($: any) => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
 const OPTS = { foldLines: 200, buttons: 'inline' }
@@ -95,10 +96,23 @@ test('footnotes: superscript marks, the notes under a rule at the end', { option
   await start($)
   const ui = await mount($, 'First[^a] and second[^b].\n\n[^a]: Note A.\n[^b]: Note B.')
   const all = await md(ui)
-  expect(await texts(ui)).toContain('First¹ and second².')
+  const marks = ((await ui.findAll({ type: 'Markdown' })) as any[]).find(m => m.props.text.startsWith('First'))
+  expect(marks.props.text).toBe('First[¹](file:///footnote/1) and second[²](file:///footnote/2).')
   expect(all).toContain('¹ Note A.')
   expect(all).toContain('² Note B.')
   expect(((await ui.findAll({ type: 'Markdown' })) as any[]).find(m => m.props.text === '² Note B.')?.props.dimColor).toBe(true)
+  await ui.unmount()
+})
+
+test('clicking a footnote mark shows its note; copies keep the plain mark', { options: OPTS }, async ($, on) => {
+  const { copies, toasts } = machine(on)
+  await start($)
+  const ui = await mount($, '- First[^a]\n- Second[^b]\n\n[^a]: Note A.\n[^b]: Note B.')
+  const item = ((await ui.findAll({ type: 'Markdown' })) as any[]).find(m => m.props.text.startsWith('Second'))
+  await $.ui.press({ plugin: P, key: item.key, requestId: 'a1', link: { href: 'file:///footnote/2' } } as any)
+  expect(toasts).toContain('² Note B.')
+  await $.ui.press({ plugin: P, key: 'copy-0', requestId: 'a1' } as any)
+  expect(copies.at(-1)).toBe('- First¹\n- Second²')
   await ui.unmount()
 })
 

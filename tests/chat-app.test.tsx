@@ -93,6 +93,27 @@ test('read receipts: your latest prompt shows ✓ until Claude starts on it, the
   expect(await receipt()).toBe(' ✓✓')
 })
 
+test('unreadPrompts: your prompt stays grey with a blinking dot until Claude starts on it', { options: { unreadPrompts: true } }, async ($, on) => {
+  machine(on)
+  await start($)
+  await $.prompt.submit({ text: 'hello', wait: false, origin: { kind: 'composer' } })
+  const look = async () => {
+    const ui = await $.ui.mount(you('hello'))
+    const all = (await ui.findAll({ type: 'Text' })) as any[]
+    const r = { dot: all.map(x => x.text).find(x => /^ (●| ?)$|^  $/.test(x)), grey: all.find(x => x.text === 'hello')?.props.dimColor === true, ticks: all.some(x => /✓/.test(x.text)) }
+    await ui.unmount()
+    return r
+  }
+  const before = await look()
+  expect(before.grey).toBe(true)
+  expect(before.ticks).toBe(false)
+  expect(before.dot).toBe(Math.floor(NOW / 500) % 2 ? ' ●' : '  ')
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  const after = await look()
+  expect(after.grey).toBe(false)
+  expect(after.ticks).toBe(true)
+})
+
 test('while Claude works: Claude Code\'s own line with the tool count, no bubble of our own', async ($, on) => {
   machine(on)
   await start($)

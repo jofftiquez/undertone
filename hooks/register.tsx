@@ -35,8 +35,8 @@ const AGENT_RUN = { plugin: 'undertone', key: 'agentRun' } as const
 // Presets bundle looks; every knob can be overridden from /config (empty / "preset" = keep).
 type Shape = 'round' | 'single' | 'double' | 'bold' | 'dashed' | 'classic' | 'quote' | 'none'
 // Friendly names → the terminal's border styles.
-const SHAPES: Record<string, Shape> = { rounded: 'round', sharp: 'single', double: 'double', bold: 'bold', dashed: 'dashed', ascii: 'classic', bar: 'quote', none: 'none' }
-type Side = { shape: Shape; border: string; label: string; fill?: string; text?: string; name: string; icon: string }
+const SHAPES: Record<string, Shape> = { rounded: 'round', sharp: 'single', double: 'double', bold: 'bold', dashed: 'dashed', ascii: 'classic', bar: 'quote', none: 'none', chevron: 'none' }
+type Side = { shape: Shape; border: string; label: string; fill?: string; text?: string; name: string; icon: string; chevron?: boolean }
 type Look = { desc: string; user: Side; claude: Side; padding: number; spacing: number; userAlign: 'right' | 'left'; divider: string; chip: string; chipHover: string }
 const side = (shape: Shape, color: string, name: string, extra: Partial<Side> = {}): Side => ({ shape, border: color, label: color, name, icon: '', ...extra })
 const look = (desc: string, user: Side, claude: Side, extra: Partial<Look> = {}): Look =>
@@ -159,6 +159,7 @@ function overrideSide(base: Side, prefix: 'user' | 'claude', o: Opt = opt): Side
   const text = ownText ?? (fill ? readableOn(fill, base.text) : base.text)
   return {
     shape: SHAPES[o<string>(prefix + 'Shape', '')] ?? base.shape,
+    chevron: o<string>(prefix + 'Shape', '') === 'chevron',
     border: color ?? base.border,
     label: fill ? readableOn(fill, color ?? base.label) ?? text ?? base.label : color ?? base.label,
     fill,
@@ -189,12 +190,13 @@ async function themeOf($: EngineInterface, d?: Record<string, unknown>): Promise
   const base = lookOf(name, o)
   const pct = (k: string, dflt: number) => Math.min(100, Math.max(20, Number(o(k, dflt)))) / 100
   const labelsOff = o<string>('bubbleLabels', 'on') === 'off' // frames and times, no "You" / "Claude"
-  const user = { ...overrideSide(base.user, 'user', o), ...(labelsOff ? { name: '', icon: '' } : {}) }
+  const labels = labelsOff ? { name: '', icon: '' } : o<string>('bubbleLabels', 'on') === 'small' ? { icon: '' } : {} // small: the name, no icon
+  const user = { ...overrideSide(base.user, 'user', o), ...labels }
   return {
     ...base,
     name,
     user,
-    claude: { ...overrideSide(base.claude, 'claude', o), ...(labelsOff ? { name: '', icon: '' } : {}) },
+    claude: { ...overrideSide(base.claude, 'claude', o), ...labels },
     chip: optColor('userColor', base.chip, o)!,
     padding: PADDING[o<string>('padding', '')] ?? base.padding,
     spacing: SPACING[o<string>('spacing', '')] ?? base.spacing,
@@ -206,7 +208,7 @@ async function themeOf($: EngineInterface, d?: Record<string, unknown>): Promise
     gapMs: Math.max(1, Number(o('gapMinutes', 60))) * 60_000,
     preciseTime: !['short', '24h'].includes(o<string>('timeFormat', 'precise')),
     foldTurns: Math.max(0, Number(o('foldTurns', 10))),
-    tableStyle: (['box', 'rules', 'minimal'].includes(o<string>('tableStyle', 'rules')) ? o<string>('tableStyle', 'rules') : 'rules') as TableStyle,
+    tableStyle: (o<string>('tableStyle', 'rules') === 'grid' ? 'box' : ['box', 'rules', 'minimal'].includes(o<string>('tableStyle', 'rules')) ? o<string>('tableStyle', 'rules') : 'rules') as TableStyle, // grid: box is a full grid
   }
 }
 // The Box props that draw one side's bubble.
@@ -722,14 +724,16 @@ async function rowOf($: EngineInterface, call: Call, columns = 80) {
 function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType<typeof rowOf>>[]) {
   const { Box, Text, Button, Code } = ui
   const Image = 'Image' in ui ? ui.Image : undefined // the terminal draws pictures; other surfaces skip them
+  const style = opt<string>('toolStyle', 'dim') // dim (default), tree (⎿ under the sentence), bright (full brightness)
   return (
-    <Box flexDirection="column" paddingLeft={3}>
+    <Box flexDirection="column" paddingLeft={style === 'tree' ? 1 : 3}>
       {rows.map((r, n) => (
         <Box flexDirection="column">
           <Box>
+            {style === 'tree' && <Text dimColor>{'⎿ '}</Text>}
             <Button key={'t' + n} label={r.isOpen ? '-' : '+'} onPress={() => $.state.set({ ...OPEN, id: r.id }, !r.isOpen)} />
-            <Text dimColor={!r.color} color={r.color}>{' ' + r.glyph + ' '}</Text>
-            <Text dimColor>{r.line}</Text>
+            <Text dimColor={!r.color} color={r.color} bold={style === 'bright'}>{' ' + r.glyph + ' '}</Text>
+            <Text dimColor={style !== 'bright'}>{r.line}</Text>
             {r.file && <Button key={'f' + n} plain dimColor label={' ↗ ' + clip(r.file.split(/[\\/]/).pop() ?? r.file, 40)} onPress={() => viewFile($, r.file!)} />}
           </Box>
           {r.preview && Image && (
@@ -785,7 +789,7 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
 // Copies text through Claude Code's own clipboard: the OS tool where there is one, else the
 // terminal (OSC 52), so it also works over SSH. `surface` is the one the button was pressed on.
 async function copyText($: EngineInterface, text: string, what: string, surface?: RenderSurface) {
-  const r = await $.ui.copy({ text, surface }).catch(() => ({ isCopied: false }))
+  const r = await $.ui.copy({ text: text.replaceAll(FN, ''), surface }).catch(() => ({ isCopied: false }))
   $.ui.toast(r.isCopied ? `Copied ${what}` : 'Copy failed')
 }
 
@@ -893,6 +897,7 @@ const strWidth = (t: string) => { let w = 0; for (const ch of t) w += charWidth(
 type Seg = { text: string; bold?: boolean; code?: boolean; italic?: boolean; link?: boolean; strike?: boolean; num?: boolean; path?: boolean }
 // Inline markdown in a cell → styled words: **bold**, *italic*, `code`, [text](url).
 function cellWords(cell: string): Seg[] {
+  cell = cell.replaceAll(FN, '')
   const segs: Seg[] = []
   const re = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\([^)]*\)|(?<![*\w])\*(?!\s)(.+?)\*(?!\w)|~~(.+?)~~|((?:[^*`[~]|~(?!~))+|[*`[~])/g
   for (const m of cell.matchAll(re)) {
@@ -949,7 +954,7 @@ function splitRow(line: string) {
   return cells
 }
 function parseTable(md: string): Table | undefined {
-  const lines = md.split('\n').filter(l => l.trim())
+  const lines = md.replaceAll(FN, '').split('\n').filter(l => l.trim())
   if (lines.length < 2 || !TABLE_RULE.test(lines[1]!)) return undefined
   const head = splitRow(lines[0]!)
   const align = splitRow(lines[1]!).map(c => (/^:-+:$/.test(c) ? 'center' : /^-+:$/.test(c) ? 'right' : 'left') as Table['align'][number])
@@ -1026,7 +1031,7 @@ function layoutTable(t: Table, room: number, style: TableStyle): Out[] {
 }
 
 // Splits a reply into markdown runs, fenced code blocks and quotes, each copyable on its own.
-type Part = { kind: 'md' | 'code' | 'quote' | 'table' | 'heading' | 'rule' | 'list' | 'math' | 'notes'; md: string; copy: string; level?: number; lang?: string; open?: boolean }
+type Part = { kind: 'md' | 'code' | 'quote' | 'table' | 'heading' | 'rule' | 'list' | 'math' | 'notes'; md: string; copy: string; level?: number; lang?: string; open?: boolean; notes?: string[] }
 // ---------- Math ----------
 // LaTeX as readable text: Greek letters and operators as symbols, x^2 as x², x_i as xᵢ,
 // \frac{a}{b} as a/b, \sqrt{x} as √x, \mathbb{R} as ℝ. What it can't turn into a symbol it
@@ -1115,15 +1120,20 @@ function textWords(text: string): Seg[] {
   return out
 }
 // Mostly Hebrew, Arabic or another right-to-left script.
-const isRtl = (t: string) => (t.match(/[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/g) ?? []).length > (t.match(/[A-Za-z]/g) ?? []).length
+const isRtl = (t: string) => opt<string>('rtl', 'auto') !== 'off' && (t.match(/[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/g) ?? []).length > (t.match(/[A-Za-z]/g) ?? []).length
+// A word's colour in text undertone draws: the theme's, or the colour you set for its kind.
+const wordInk = (sg: { code?: boolean; num?: boolean; path?: boolean; link?: boolean; bold?: boolean; italic?: boolean }, th: Theme) =>
+  sg.code ? optColor('inlineCodeColor', th.user.border) : sg.num ? optColor('numberColor', 'warning') : sg.path ? optColor('pathColor', 'permission')
+    : sg.link ? optColor('linkColor', th.claude.text) : sg.bold ? optColor('strongColor', th.claude.text) : sg.italic ? optColor('emphasisColor', th.claude.text) : th.claude.text
 function drawWords(ui: ElementTable, th: Theme, text: string, extra: { dim?: boolean } = {}) {
   const { Text } = ui
+  text = text.replaceAll(FN, '')
   const rtl = isRtl(text)
   return (
     <Text dir={rtl ? 'rtl' : undefined} dimColor={extra.dim}>
       {textWords(text).map(sg => (
         <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} underline={sg.link}
-          color={sg.code ? th.user.border : sg.num ? optColor('numberColor', 'warning') : sg.path ? optColor('pathColor', 'permission') : th.claude.text}>{sg.text}</Text>
+          color={wordInk(sg, th)}>{sg.text}</Text>
       ))}
     </Text>
   )
@@ -1146,7 +1156,7 @@ function drawLinkedWords($: EngineInterface, ui: ElementTable, th: Theme, text: 
       {textWords(text).map((sg, k) => {
         const abs = sg.path ? absPath(sg.text) : undefined
         if (abs) return <Markdown key={`${key}-${k}`} text={`[${sg.text}](file://${encodeURI(abs)})`} onLinkPress={() => viewFile($, abs)} />
-        return <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} color={sg.code ? th.user.border : sg.num ? optColor('numberColor', 'warning') : sg.path ? optColor('pathColor', 'permission') : th.claude.text}>{sg.text}</Text>
+        return <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} color={wordInk(sg, th)}>{sg.text}</Text>
       })}
     </Box>
   )
@@ -1855,8 +1865,9 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     if (style === 'banner' && level === 2) return <Box flexDirection="column" marginTop={i ? 1 : 0}>{words}<Text color={th.claude.border}>{'━'.repeat(Math.max(3, room))}</Text></Box>
     return <Box marginTop={i && level <= 3 ? 1 : 0}>{words}</Box>
   }
-  if (part.kind === 'md' && colorText() && plainParagraphs(part.md)) return drawParagraphs($, ui, th, part.md, 'p' + i)
-  if (part.kind === 'rule') return <Text color={th.claude.border} dimColor>{'─'.repeat(Math.max(3, room))}</Text>
+  if (part.kind === 'md' && colorText() && plainParagraphs(part.md) && !part.md.includes(FN)) return drawParagraphs($, ui, th, part.md, 'p' + i)
+  if (part.kind === 'md' && part.md.includes(FN)) return noteMd($, Markdown, part.md, part.notes, 'md-' + i)
+  if (part.kind === 'rule') return <Text color={optColor('ruleColor', th.claude.border)} dimColor>{'─'.repeat(Math.max(3, room))}</Text>
   if (part.kind === 'notes') {
     return (
       <Box flexDirection="column" marginTop={1}>
@@ -1875,9 +1886,9 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     const bar = style === 'progress' && tasks.length
       ? <Text><Text color="success">{'▰'.repeat(Math.round((done / tasks.length) * width))}</Text><Text dimColor>{'▱'.repeat(width - Math.round((done / tasks.length) * width)) + `  ${done}/${tasks.length} done`}</Text></Text>
       : null
-    const rows = items.map(it => {
+    const rows = items.map((it, k) => {
       const mark = it.task ? marks[it.task === 'done' ? 1 : 0] : /^\d/.test(it.marker) ? it.marker : opt<string>('listMarker', 'dots') === 'dash' ? '-' : BULLETS[it.depth % BULLETS.length]!
-      const plain = colorText() && plainParagraphs(it.text)
+      const plain = colorText() && plainParagraphs(it.text) && !it.text.includes(FN) // marks need Markdown to be clicked
       if (isRtl(it.text)) {
         return (
           <Box justifyContent="flex-end" paddingRight={it.depth * 2}>
@@ -1898,7 +1909,7 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
         <Box paddingLeft={it.depth * 2}>
           <Box width={[...mark].length + 1} flexShrink={0}><Text color={it.task === 'done' ? 'success' : optColor('bulletColor', ink)}>{mark}</Text></Box>
           <Box flexGrow={1} flexShrink={1}>
-            {it.task === 'done' ? <Text dimColor strikethrough>{plainCell(it.text)}</Text> : <Markdown text={it.text} />}
+            {it.task === 'done' ? <Text dimColor strikethrough>{plainCell(it.text)}</Text> : noteMd($, Markdown, it.text, part.notes, `li-${i}-${k}`)}
           </Box>
         </Box>
       )
@@ -1906,18 +1917,19 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     return withCopy(<Box flexDirection="column" marginTop={i ? 1 : 0}>{bar}{rows}</Box>, '[ copy list ]', 'list', true)
   }
   if (part.kind === 'quote') {
-    const alert = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\n?/i.exec(part.copy)
+    const inner = part.md.split('\n').map(l => l.replace(/^\s*>\s?/, '')).join('\n') // part.copy without FN
+    const alert = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\n?/i.exec(inner)
     if (alert) {
       const base = ALERTS[alert[1]!.toUpperCase()]!
       const a = { ...base, ink: optColor(`alert${base.label}Color`, base.ink)! }
-      const rest = part.copy.slice(alert[0].length).trim()
+      const rest = inner.slice(alert[0].length).trim()
       return withCopy(
         <Box flexDirection="column" borderStyle="round" borderColor={a.ink} paddingX={1}>
           <Text bold color={a.ink}>{a.label}</Text>
-          {rest && <Markdown text={rest} />}
+          {rest && noteMd($, Markdown, rest, part.notes, 'alert-' + i)}
         </Box>, '[ copy quote ]', 'quote', true)
     }
-    return withCopy(<Box borderStyle="quote" borderColor={th.claude.border} paddingLeft={1}><Markdown text={part.copy} /></Box>, '[ copy quote ]', 'quote', true)
+    return withCopy(<Box borderStyle="quote" borderColor={optColor('quoteColor', th.claude.border)} paddingLeft={1}>{noteMd($, Markdown, inner, part.notes, 'quote-' + i)}</Box>, '[ copy quote ]', 'quote', true)
   }
   if (part.kind === 'code' && !part.open && (part.lang === 'figure' || part.lang === 'mermaid')) {
     const picture = drawPicture($, ui, part, i, th, room, hov, scope)
@@ -1942,10 +1954,11 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
 function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button } = ui
   if (part.lang === 'mermaid' && opt<unknown>('mermaid', true) === false) return undefined // mermaid off: the source as code
-  const accent = optColor('diagramColor', readableOn(th.claude.fill, th.claude.border))
+  const accent = optColor('diagramColor', optColor('accentColor', readableOn(th.claude.fill, th.claude.border)))
+  const diagramText = optColor('diagramTextColor', th.claude.text)
   const roleInk: Record<string, { color?: string; dimColor?: true; bold?: true }> = {
     accent: { color: accent }, warn: { color: 'error' }, ok: { color: 'success' }, note: { color: 'warning' },
-    dim: { dimColor: true }, strong: { bold: true, color: th.claude.label },
+    dim: { dimColor: true }, strong: { bold: true, color: optColor('diagramTextColor', th.claude.label) },
   }
   let rows: Seg2[][] | undefined
   let note = ''
@@ -1991,7 +2004,7 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
   )
   const body = (
     <Box flexDirection="column" marginY={1}>
-      {rows.map(r => <Text>{r.map(sg => <Text {...(!sg.role ? { color: th.claude.text } : sg.role.startsWith('ink:') ? { color: sg.role.slice(4) } : roleInk[sg.role] ?? {})}>{sg.text}</Text>)}</Text>)}
+      {rows.map(r => <Text>{r.map(sg => <Text {...(!sg.role ? { color: diagramText } : sg.role.startsWith('ink:') ? { color: sg.role.slice(4) } : roleInk[sg.role] ?? {})}>{sg.text}</Text>)}</Text>)}
     </Box>
   )
   return hov
@@ -2079,6 +2092,24 @@ function flowRows(flow: Flow, room: number): Seg2[][] | undefined {
   return out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? undefined : out
 }
 
+// A footnote mark is its superscript number and FN, a word joiner nothing else writes. Drawn
+// through Markdown the mark becomes a link a click answers with its note in a toast; anywhere
+// else, and in every copy, FN is dropped.
+const FN = '\u2060'
+const FN_MARK = /([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\u2060/g
+const fromSuperscript = (m: string) => Number([...m].map(ch => '⁰¹²³⁴⁵⁶⁷⁸⁹'.indexOf(ch)).join(''))
+const noteHref = (n: number) => `file:///footnote/${n}`
+function noteMd($: EngineInterface, Markdown: ElementTable['Markdown'], text: string, notes: string[] | undefined, key: string, dim = false) {
+  if (!notes?.length || !text.includes(FN)) return <Markdown text={text.replaceAll(FN, '')} dimColor={dim} />
+  const hrefs: string[] = []
+  const linked = text.replace(FN_MARK, (_, m: string) => { const h = noteHref(fromSuperscript(m)); hrefs.push(h); return `[${m}](${h})` })
+  return <Markdown key={key} text={linked} dimColor={dim} pressableLinks={hrefs} onLinkPress={link => {
+    const n = Number(/\/footnote\/(\d+)$/.exec(link.href)?.[1])
+    const note = notes[n - 1]
+    if (note) $.ui.toast(`${superscript(String(n))} ${note}`)
+  }} />
+}
+
 function splitReply(text: string, rich = false): Part[] {
   const parts: Part[] = []
   // Footnotes: [^id] marks become superscript numbers, the notes a block at the end.
@@ -2090,7 +2121,7 @@ function splitReply(text: string, rich = false): Part[] {
     text = text.replace(/\[\^([^\]\s]+)\]/g, (m, id: string) => {
       if (!defs.has(id)) return m
       if (!order.includes(id)) order.push(id)
-      return superscript(String(order.indexOf(id) + 1))
+      return superscript(String(order.indexOf(id) + 1)) + FN
     })
     for (const id of order) notes.push(`${superscript(String(order.indexOf(id) + 1))} ${defs.get(id)}`)
   }
@@ -2162,7 +2193,11 @@ function splitReply(text: string, rich = false): Part[] {
     } else md.push(line)
   }
   flush()
-  if (notes.length) parts.push({ kind: 'notes', md: notes.join('\n'), copy: notes.join('\n') })
+  if (notes.length) {
+    const byNumber = notes.map(n => n.replace(/^\S+ /, ''))
+    for (const p of parts) { p.notes = byNumber; p.copy = p.copy.replaceAll(FN, '') }
+    parts.push({ kind: 'notes', md: notes.join('\n'), copy: notes.join('\n') })
+  }
   // Inline $…$ math: italic, symbols as symbols. A price ("$5 and $10") is not math: the text
   // between must start and end with a non-space and not be followed by a digit.
   // The copy keeps what Claude wrote; only the drawn text changes.
@@ -2789,7 +2824,7 @@ export const register: Register = (on, options) => {
     // [Image #N] → a button that opens the saved copy in the OS image viewer.
     const saved = (await $.state.get(IMAGES)).value ?? {}
     const imageNos = [...new Set([...e.props.text.matchAll(IMAGE_TOKEN)].map(m => m[1]!))]
-    const w = bubbleWidth(e.props.text, `${sideLabel(th.user)}  ${t} ✓✓   ☆ [ react ]`, e.viewport?.columns, th.userShare, chrome(th.user, th.padding))
+    const w = bubbleWidth((th.user.chevron ? '❯ ' : '') + e.props.text, `${sideLabel(th.user)}  ${t} ✓✓   ☆ [ react ]`, e.viewport?.columns, th.userShare, chrome(th.user, th.padding))
     const ms = await msOf($, e.requestId, e.props.text)
     const prevs = (await $.state.get(PREV)).value ?? {}
     const prevMs = (e.requestId ? prevs[e.requestId] : undefined) ?? prevs[textKey(e.props.text)]
@@ -2804,6 +2839,9 @@ export const register: Register = (on, options) => {
     // ✓ sent, ✓✓ once Claude has started on it; only your latest prompt can still be unread.
     const lp = (await $.state.get(LAST_PROMPT)).value
     const unread = !!lp && lp.key === key && !lp.read
+    // unreadPrompts: grey, with ● blinking where ✓ goes, until Claude starts on it (reading the clock redraws the row)
+    const waiting = unread && opt<unknown>('unreadPrompts', false) === true
+    const blinkOn = waiting && Math.floor((await $.clock.now()) / 500) % 2 === 1
     // At the fold point: a marker to show / re-fold the earlier turns.
     const cut = (await $.state.get(CUTOFF)).value
     const showOld = (await $.state.get(SHOW_OLD)).value ?? false
@@ -2830,12 +2868,13 @@ export const register: Register = (on, options) => {
             <Text>
               <Text bold color={th.user.label}>{sideLabel(th.user)}</Text>
               {t && <Text {...timeInk(th.user)}>{'  ' + t}</Text>}
-              {unread ? <Text {...timeInk(th.user)}>{' ✓'}</Text> : <Text color={readableOn(th.user.fill, th.claude.border)}>{' ✓✓'}</Text>}
+              {waiting ? <Text {...timeInk(th.user)}>{blinkOn ? ' ●' : '  '}</Text> : unread ? <Text {...timeInk(th.user)}>{' ✓'}</Text> : <Text color={readableOn(th.user.fill, th.claude.border)}>{' ✓✓'}</Text>}
             </Text>
             {hov && pinned && star}
             {reveal(Box, hov, scope, 'star-reveal', <Box columnGap={1}>{!(hov && pinned) && star}{reactButton($, Button, key)}</Box>)}
           </Box>
-          <Text color={th.user.text}>
+          <Text color={waiting ? undefined : th.user.text} dimColor={waiting}>
+            {th.user.chevron && <Text bold color={th.user.border}>{'❯ '}</Text>}
             {slashParts(e.props.text, new Set((await $.command.list().catch(() => [])).map(c => c.name)))
               .map(p => (p.cmd ? <Text bold color={readableOn(th.user.fill, th.claude.border)}>{p.text}</Text> : p.text))}
           </Text>
@@ -2948,7 +2987,7 @@ export const register: Register = (on, options) => {
             }
             const drawn = rich ? richPart($, $.ui.resolve(e), part, i, th, room, hov, scope) : undefined
             if (drawn) return drawn
-            if (part.kind === 'md') return <Markdown text={part.md} />
+            if (part.kind === 'md') return noteMd($, Markdown, part.md, part.notes, 'md-' + i)
             if (part.kind === 'table') {
               const table = parseTable(part.md)
               if (!table) return <Markdown text={part.md} />
@@ -2969,7 +3008,7 @@ export const register: Register = (on, options) => {
                   {lines.map(line => (
                     <Text>
                       {line.map(sg => sg.rule ? <Text dimColor color={optColor('tableRuleColor', th.claude.border)}>{sg.text}</Text>
-                        : <Text bold={sg.head || sg.bold} italic={sg.italic} underline={sg.link} color={sg.head ? optColor('tableHeaderColor', th.claude.label) : sg.code ? th.user.border : sg.link ? th.user.border : optColor('tableTextColor', th.claude.text)}>{sg.text}</Text>)}
+                        : <Text bold={sg.head || sg.bold} italic={sg.italic} underline={sg.link} color={sg.head ? optColor('tableHeaderColor', th.claude.label) : sg.code ? optColor('inlineCodeColor', th.user.border) : sg.link ? optColor('linkColor', th.user.border) : sg.bold ? optColor('strongColor', optColor('tableTextColor', th.claude.text)) : sg.italic ? optColor('emphasisColor', optColor('tableTextColor', th.claude.text)) : optColor('tableTextColor', th.claude.text)}>{sg.text}</Text>)}
                     </Text>
                   ))}
                 </Box>
@@ -3034,11 +3073,13 @@ export const register: Register = (on, options) => {
     const t = await timeOf($, calls[0]?.tool_use_id)
     const st = calls.some(running) ? statusOf({ isRunning: true, isErrored: false, isInterrupted: false })
       : anyFailed ? statusOf({ isRunning: false, isErrored: true, isInterrupted: false }) : statusOf({ isRunning: false, isErrored: false, isInterrupted: false })
+    const style = opt<string>('toolStyle', 'dim')
     const head = (
-      <Box paddingLeft={3}>
+      <Box paddingLeft={style === 'tree' ? 1 : 3}>
+        {style === 'tree' && <Text dimColor>{'⎿ '}</Text>}
         <Button key="group" label={isOpen ? '-' : '+'} onPress={() => $.state.set({ ...OPEN, id: gid }, !isOpen)} />
-        <Text dimColor={!st.color} color={st.color}>{' ' + st.glyph + ' '}</Text>
-        <Text dimColor>{(t ? t + '  ' : '') + sumUp(calls)}</Text>
+        <Text dimColor={!st.color} color={st.color} bold={style === 'bright'}>{' ' + st.glyph + ' '}</Text>
+        <Text dimColor={style !== 'bright'}>{(t ? t + '  ' : '') + sumUp(calls)}</Text>
       </Box>
     )
     if (!isOpen) return head

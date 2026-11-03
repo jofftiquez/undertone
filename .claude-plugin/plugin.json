@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
   "author": {
     "name": "Joff Tiquez",
@@ -89,7 +89,7 @@
     "userShape": {
       "type": "string",
       "title": "Your bubble shape",
-      "description": "rounded, sharp (square corners), double, bold, dashed, ascii (+--+), bar (left line only), none",
+      "description": "rounded, sharp (square corners), double, bold, dashed, ascii (+--+), bar (left line only), none, chevron (❯ before your prompt, no frame)",
       "default": "preset",
       "options": [
         "preset",
@@ -100,7 +100,8 @@
         "dashed",
         "ascii",
         "bar",
-        "none"
+        "none",
+        "chevron"
       ]
     },
     "claudeShape": {
@@ -288,12 +289,13 @@
     "tableStyle": {
       "type": "string",
       "title": "Table style",
-      "description": "How tables in Claude's replies draw, fitted to the bubble (long cells wrap inside their column). rules: a header rule and dotted lines between rows. box: a full grid. minimal: a header rule only.",
+      "description": "How tables in Claude's replies draw, fitted to the bubble (long cells wrap inside their column). rules: a header rule and dotted lines between rows. box: a full grid. minimal: a header rule only. grid: the same as box.",
       "default": "rules",
       "options": [
         "rules",
         "box",
-        "minimal"
+        "minimal",
+        "grid"
       ]
     },
     "quickReplies": {
@@ -383,6 +385,16 @@
       "description": "A short note only the model reads, on each prompt you type, saying this terminal draws mermaid flowcharts and charts, figures, task lists and alerts (about 130 tokens)",
       "default": true
     },
+    "rtl": {
+      "type": "string",
+      "title": "Right to left",
+      "description": "auto = Hebrew and Arabic blocks right-aligned with their bullets on the right; off = left to right always",
+      "default": "auto",
+      "options": [
+        "auto",
+        "off"
+      ]
+    },
     "latexImages": {
       "type": "boolean",
       "title": "Math as pictures",
@@ -446,6 +458,17 @@
       "description": "Off = Claude Code's own tool call rows; the rest of undertone stays",
       "default": true
     },
+    "toolStyle": {
+      "type": "string",
+      "title": "Tool row style",
+      "description": "dim = quiet rows under the reply; tree = each row hangs under Claude's sentence with ⎿; bright = full brightness, bold status dot",
+      "default": "dim",
+      "options": [
+        "dim",
+        "tree",
+        "bright"
+      ]
+    },
     "runningDot": {
       "type": "string",
       "title": "Running call",
@@ -493,10 +516,11 @@
     "bubbleLabels": {
       "type": "string",
       "title": "Bubble labels",
-      "description": "on = You / Claude over each bubble; off = frames and times only",
+      "description": "on = You / Claude over each bubble, with any icon; small = the names without icons; off = frames and times only",
       "default": "on",
       "options": [
         "on",
+        "small",
         "off"
       ]
     },
@@ -594,6 +618,60 @@
       "type": "string",
       "title": "Diff removed colour",
       "description": "Removed lines: their − marks and bars, and the count: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "unreadPrompts": {
+      "type": "boolean",
+      "title": "Grey until read",
+      "description": "Your latest prompt stays grey, with a blinking dot, until Claude starts on it",
+      "default": false
+    },
+    "accentColor": {
+      "type": "string",
+      "title": "Accent colour",
+      "description": "Diagram lines and figure accents (Diagram colour wins): a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "strongColor": {
+      "type": "string",
+      "title": "Bold text colour",
+      "description": "Bold text in replies and tables: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "emphasisColor": {
+      "type": "string",
+      "title": "Italic text colour",
+      "description": "Italic text in replies and tables: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "inlineCodeColor": {
+      "type": "string",
+      "title": "Inline code colour",
+      "description": "`inline code` in replies and tables: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "linkColor": {
+      "type": "string",
+      "title": "Link colour",
+      "description": "Links in replies and tables: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "quoteColor": {
+      "type": "string",
+      "title": "Quote bar colour",
+      "description": "The bar down a quote: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "ruleColor": {
+      "type": "string",
+      "title": "Rule colour",
+      "description": "Horizontal rules: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "diagramTextColor": {
+      "type": "string",
+      "title": "Diagram text colour",
+      "description": "Labels in diagrams and figures: a colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
       "default": ""
     }
   }

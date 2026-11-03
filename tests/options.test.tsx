@@ -145,3 +145,64 @@ test('table colours: header, rules and text take the colours you set', opts({ ta
   expect(all.some(t => t.text === 'ada' && t.props.color === '#333333')).toBe(true)
   await ui.unmount()
 })
+
+test('text colours: bold, italic, inline code, quotes, rules and diagram text take the colours you set', opts({ strongColor: '#a00001', emphasisColor: '#a00002', inlineCodeColor: '#a00003', quoteColor: '#a00004', ruleColor: '#a00005', diagramTextColor: '#a00006' }), async ($, on) => {
+  machine(on); await start($)
+  const ui = await reply($, 'A **bold** and *soft* `x()` here.\n\n---\n\n> quoted\n\n' + fence('figure', 'plain label'))
+  const all = await texts(ui)
+  for (const [text, color] of [['bold', '#a00001'], ['soft', '#a00002'], ['x()', '#a00003'], ['plain label', '#a00006']]) expect(all.some(t => t.text === text && t.props.color === color)).toBe(true)
+  expect(all.some(t => /^─+$/.test(t.text) && t.props.color === '#a00005')).toBe(true)
+  expect(((await ui.findAll({ type: 'Box' })) as any[]).some(b => b.props.borderStyle === 'quote' && b.props.borderColor === '#a00004')).toBe(true)
+  await ui.unmount()
+})
+
+const you = ($: any, text: string) => $.ui.mount({ plugin: P, surface: 'terminal', component: 'UserMessage', requestId: 'p1', props: { text, origin: { kind: 'composer' }, isExpanded: false }, viewport: { columns: 100, rows: 60 } } as any)
+test('userShape chevron: ❯ before your prompt, no frame', opts({ userShape: 'chevron' }), async ($, on) => {
+  machine(on); await start($)
+  const ui = await you($, 'ship it')
+  expect((await texts(ui)).some(t => t.text === '❯ ')).toBe(true)
+  expect(((await ui.findAll({ type: 'Box' })) as any[]).find(b => b.props.key === 'bubble')?.props.borderStyle).toBeUndefined()
+  await ui.unmount()
+})
+
+test('bubbleLabels small: the names without icons', opts({ bubbleLabels: 'small', claudeIcon: '✻' }), async ($, on) => {
+  machine(on); await start($)
+  const ui = await reply($, 'hello')
+  const all = (await texts(ui)).map(t => t.text)
+  expect(all).toContain('Claude')
+  expect(all.some(t => t.includes('✻'))).toBe(false)
+  await ui.unmount()
+})
+
+test('tableStyle grid: a full grid, as box', opts({ tableStyle: 'grid' }), async ($, on) => {
+  machine(on); await start($)
+  const ui = await reply($, '| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |')
+  const all = (await texts(ui)).map(t => t.text)
+  expect(all.some(t => t.startsWith('┌'))).toBe(true)
+  expect(all.some(t => t.startsWith('├'))).toBe(true)
+  await ui.unmount()
+})
+
+test('rtl off: a Hebrew list keeps its bullets on the left', opts({ rtl: 'off' }), async ($, on) => {
+  machine(on); await start($)
+  const ui = await reply($, '- שלום עולם')
+  expect(((await ui.findAll({ type: 'Text' })) as any[]).some(t => t.props.dir === 'rtl')).toBe(false)
+  await ui.unmount()
+})
+
+const done = { ...call, isRunning: false, output: 'ok' }
+for (const [style, check] of [['tree', (t: any[]) => t.some(x => x.text === '⎿ ')], ['bright', (t: any[]) => t.some(x => /sleep 9/.test(x.text) && !x.props.dimColor)]] as const) {
+  test(`toolStyle ${style}`, opts({ toolStyle: style }), async ($, on) => {
+    machine(on); await start($)
+    const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 't1', props: done } as any)
+    expect(check(await texts(ui))).toBe(true)
+    await ui.unmount()
+  })
+}
+
+test('toolStyle tree: folded groups hang under the sentence too', opts({ toolStyle: 'tree' }), async ($, on) => {
+  machine(on); await start($)
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolGroup', requestId: 'g1', props: { calls: [done, { ...done, tool_use_id: 't2' }], isExpanded: false } } as any)
+  expect((await texts(ui)).some(x => x.text === '⎿ ')).toBe(true)
+  await ui.unmount()
+})
