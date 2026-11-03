@@ -168,6 +168,9 @@ claude plugin validate .   # what the engine will load, and what it would refuse
 claude plugin test .       # 181 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
+CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code
+writes to `.claude-plugin/types/` when it loads the mod, so run it locally: `npx -p typescript tsc --noEmit -p .`
+
 The code lives in `hooks/register.tsx`; the state contract in `types/index.d.ts`.
 
 ## License
