@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
   "author": {
     "name": "Joff Tiquez",
@@ -248,11 +248,12 @@
     "timeFormat": {
       "type": "string",
       "title": "Bubble time format",
-      "description": "precise = 4:47:12.345 PM UTC+8, short = 4:47 PM",
+      "description": "precise = 4:47:12.345 PM UTC+8, short = 4:47 PM, off = no times",
       "default": "precise",
       "options": [
         "precise",
-        "short"
+        "short",
+        "off"
       ]
     },
     "foldTurns": {
@@ -354,12 +355,13 @@
     "headingStyle": {
       "type": "string",
       "title": "Heading style",
-      "description": "banner = a box around H1 and a heavy rule under H2; bold; underline = H1 and H2 underlined",
+      "description": "banner = a box around H1 and a heavy rule under H2; bold; underline = H1 and H2 underlined; uppercase = bold, H1 in capitals",
       "default": "banner",
       "options": [
         "banner",
         "bold",
-        "underline"
+        "underline",
+        "uppercase"
       ]
     },
     "taskStyle": {
@@ -410,6 +412,158 @@
       "title": "Click paths in replies",
       "description": "A path in Claude's text (~/src/app.ts, ./out/report.md, /tmp/a.md) opens in the file viewer on a click; nothing is ever run",
       "default": true
+    },
+    "surfaces": {
+      "type": "string",
+      "title": "Surfaces",
+      "description": "Where undertone draws: all, or a comma-separated list of terminal, desktop, vscode, mobile; the rest keep Claude Code's own look",
+      "default": "all"
+    },
+    "listMarker": {
+      "type": "string",
+      "title": "List bullets",
+      "description": "dots = • ◦ ▪ by depth; dash = - at every level, so a list you select pastes as Markdown",
+      "default": "dots",
+      "options": [
+        "dots",
+        "dash"
+      ]
+    },
+    "folds": {
+      "type": "string",
+      "title": "Long replies start",
+      "description": "closed = folded to their first lines with [ more ]; open = whole, with [ less ]",
+      "default": "closed",
+      "options": [
+        "closed",
+        "open"
+      ]
+    },
+    "toolRows": {
+      "type": "boolean",
+      "title": "Tool rows",
+      "description": "Off = Claude Code's own tool call rows; the rest of undertone stays",
+      "default": true
+    },
+    "runningDot": {
+      "type": "string",
+      "title": "Running call",
+      "description": "ring = a still ◌; blink = ● on and off every half second",
+      "default": "ring",
+      "options": [
+        "ring",
+        "blink"
+      ]
+    },
+    "copyButtons": {
+      "type": "boolean",
+      "title": "Copy buttons",
+      "description": "Off hides every copy button (/undertone copy still works)",
+      "default": true
+    },
+    "textCopyButtons": {
+      "type": "boolean",
+      "title": "Copy buttons on lists and quotes",
+      "description": "Off hides the copy buttons on lists, quotes and alerts and keeps the rest",
+      "default": true
+    },
+    "mermaid": {
+      "type": "boolean",
+      "title": "Draw mermaid diagrams",
+      "description": "Off leaves mermaid blocks as code (figures still draw)",
+      "default": true
+    },
+    "mermaidAscii": {
+      "type": "boolean",
+      "title": "Diagrams in ASCII",
+      "description": "Draw diagrams and charts with + - | and # instead of box-drawing characters and blocks",
+      "default": false
+    },
+    "pieStyle": {
+      "type": "string",
+      "title": "Pie charts",
+      "description": "bars = one bar per slice, largest first; round = a circle of coloured cells with a legend",
+      "default": "bars",
+      "options": [
+        "bars",
+        "round"
+      ]
+    },
+    "bubbleLabels": {
+      "type": "string",
+      "title": "Bubble labels",
+      "description": "on = You / Claude over each bubble; off = frames and times only",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "numberColor": {
+      "type": "string",
+      "title": "Number colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "pathColor": {
+      "type": "string",
+      "title": "Path colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "headingColor": {
+      "type": "string",
+      "title": "Heading colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "bulletColor": {
+      "type": "string",
+      "title": "Bullet colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "diagramColor": {
+      "type": "string",
+      "title": "Diagram colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "alertNoteColor": {
+      "type": "string",
+      "title": "Note alert colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "alertTipColor": {
+      "type": "string",
+      "title": "Tip alert colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "alertImportantColor": {
+      "type": "string",
+      "title": "Important alert colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "alertWarningColor": {
+      "type": "string",
+      "title": "Warning alert colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "alertCautionColor": {
+      "type": "string",
+      "title": "Caution alert colour",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
+    },
+    "pngBackgroundColor": {
+      "type": "string",
+      "title": "PNG copy background",
+      "description": "A colour (hex, rgb(), ansi256() or a colour name); empty = the theme's",
+      "default": ""
     }
   }
 }

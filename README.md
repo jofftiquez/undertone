@@ -154,7 +154,7 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
   </tr>
 </table>
 
-- **Charts** from ` ```mermaid ` blocks: `xychart-beta` bar and line series as bars measured to an eighth of a cell, the tallest one highlighted, and `pie` charts as share bars, largest first.
+- **Charts** from ` ```mermaid ` blocks: `xychart-beta` bar and line series as bars measured to an eighth of a cell, the tallest one highlighted, and `pie` charts as share bars, largest first, or as a circle with *Pie charts* `round`.
 - **Flowcharts** (`graph LR` / `TD`): a straight chain as boxes joined by arrows, with edge labels; branches and loops as a tree, `↺` where it loops back.
 - **State diagrams** draw like flowcharts, `●` where they start and `◉` where they end; **class and ER diagrams** as a box per class or entity with its members, and the relations under them in words (`Duck ──▷ Animal  inherits`, `CUSTOMER ──▶ ORDER  places (one to many)`).
 - **Mindmaps** as a tree from the root, each branch in its own colour; **user journeys** as a score bar per task, red to green, with who took part; **git graphs** as lanes, `├─╮` where a branch starts and `●─╯` where it merges, with commit ids and tags.
@@ -267,10 +267,12 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Bubble style | `preset` | `framed`, `filled` |
 | Your / Claude's bubble shape | `preset` | `rounded`, `sharp`, `double`, `bold`, `dashed`, `ascii`, `bar`, `none` |
 | Bubble buttons | `hover` | `inline` to always show ☆ and copy |
+| Bubble labels | on | off = frames only, no names or icons |
 | Table style | `rules` | `box`, `minimal` |
-| Time format | `precise` | `short` |
+| Time format | `precise` | `short`, `off` |
 | Keep last N turns unfolded | `10` | `0` never folds |
 | Fold replies longer than | `15` lines | |
+| Long replies start | `closed` | `open`, with `[ less ]` |
 | Gap divider after | `60` minutes | |
 | Quick replies | `Go ahead\|Explain more\|Shorter, please` | `off` = none |
 | Light by day, dark by night | off | with *Daytime hours* `7-19` |
@@ -279,15 +281,25 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Rich text | on | off = Claude Code's own Markdown |
 | Colour numbers and paths | on | |
 | Click paths in replies | on | opens them in the file viewer |
-| Heading style | `banner` | `bold`, `underline` |
+| Heading style | `banner` | `bold`, `underline`, `uppercase` |
+| List bullets | `dots` | `dash` |
 | Task list style | `brackets` | `ticks`, `box`, `progress` |
 | Tell Claude about pictures | on | the note on your prompts |
+| Draw mermaid diagrams | on | off = mermaid stays code |
+| Diagrams in ASCII | off | `#`, `+`, `-` and `|` instead of blocks and box lines |
+| Pie charts | `bars` | `round`, a circle of coloured cells |
 | Math as pictures | on | needs `ratex-render`; off = text |
 | Diff style | `card` | `full`, `marks`, `bar` |
+| Copy buttons | on | off = none anywhere; *Copy buttons on lists and quotes* turns off just theirs |
+| Tool rows | on | off = Claude Code's own |
+| Running call | `ring` | `blink` |
+| Surfaces | `all` | `terminal`, `desktop`, … where undertone draws |
 | Pictures inline | on | |
 | Desktop app wallpaper | `off` | `theme` |
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
+
+Colours: numbers, paths, headings, bullets, diagrams, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme.
 
 ## Privacy and side effects
 
@@ -309,7 +321,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 291 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 304 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

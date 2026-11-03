@@ -188,12 +188,13 @@ async function themeOf($: EngineInterface, d?: Record<string, unknown>): Promise
   if (o<unknown>('dayNight', false) === true && offsetMin !== undefined) name = dayOrNight(name, await $.clock.now(), offsetMin, String(o('dayHours', '7-19')))
   const base = lookOf(name, o)
   const pct = (k: string, dflt: number) => Math.min(100, Math.max(20, Number(o(k, dflt)))) / 100
-  const user = overrideSide(base.user, 'user', o)
+  const labelsOff = o<string>('bubbleLabels', 'on') === 'off' // frames and times, no "You" / "Claude"
+  const user = { ...overrideSide(base.user, 'user', o), ...(labelsOff ? { name: '', icon: '' } : {}) }
   return {
     ...base,
     name,
     user,
-    claude: overrideSide(base.claude, 'claude', o),
+    claude: { ...overrideSide(base.claude, 'claude', o), ...(labelsOff ? { name: '', icon: '' } : {}) },
     chip: optColor('userColor', base.chip, o)!,
     padding: PADDING[o<string>('padding', '')] ?? base.padding,
     spacing: SPACING[o<string>('spacing', '')] ?? base.spacing,
@@ -357,7 +358,7 @@ async function msOf($: EngineInterface, id: string | undefined, text?: string) {
   return ms
 }
 async function timeOf($: EngineInterface, id: string | undefined, text?: string, precise = false) {
-  if (offsetMin === undefined) return ''
+  if (offsetMin === undefined || opt<string>('timeFormat', 'precise') === 'off') return ''
   const ms = await msOf($, id, text)
   return ms === undefined ? '' : (precise ? fmtPrecise : fmt)(ms, await $.clock.now(), offsetMin)
 }
@@ -705,7 +706,9 @@ async function rowOf($: EngineInterface, call: Call, columns = 80) {
   const toggled = id ? (await $.state.get({ ...OPEN, id })).value : undefined
   const isOpen = toggled ?? (call.isErrored && !call.isInterrupted) // failures open until folded
   const t = await timeOf($, id)
-  const { glyph, color } = statusOf(call)
+  const st = statusOf(call)
+  // runningDot blink: ● on and off every half second (reading the clock redraws the row)
+  const { glyph, color } = st.glyph === '◌' && opt<string>('runningDot', 'ring') === 'blink' ? { glyph: Math.floor((await $.clock.now()) / 500) % 2 ? '●' : ' ', color: optColor('diagramColor', undefined) } : st
   if (!where.cwd) { where.cwd = await $.session.cwd().catch(() => ''); where.home = await homeDir($).catch(() => '') }
   const line = (t ? t + '  ' : '') + clip(describe(call), Math.max(20, columns - 16))
   const inp = (call.input ?? {}) as Record<string, unknown>
@@ -818,7 +821,7 @@ async function copyPng($: EngineInterface, art: string, th: Theme, what: string,
   if (await overSsh($)) { await copyText($, art, what + ' as text (a picture copy needs a local clipboard)', surface); return }
   const light = /light|latte|dawn/.test(th.name)
   const fg = /^#[0-9a-f]{6}$/i.test(th.claude.text ?? '') ? th.claude.text! : SURFACE[th.name]?.text ?? (light ? '#24292f' : '#d7dae0')
-  const bg = SURFACE[th.name]?.surface ?? (light ? '#f6f8fa' : '#1e2027')
+  const bg = optColor('pngBackgroundColor', SURFACE[th.name]?.surface ?? (light ? '#f6f8fa' : '#1e2027'))!
   const r = (await windows($))
     ? await ps($, 'Add-Type -AssemblyName System.Windows.Forms, System.Drawing; $f = New-Object System.Drawing.Font("Consolas", 11); $m = [System.Drawing.Graphics]::FromImage((New-Object System.Drawing.Bitmap 1, 1)).MeasureString($p.text, $f); ' +
       '$b = New-Object System.Drawing.Bitmap ([int]$m.Width + 48), ([int]$m.Height + 48); $g = [System.Drawing.Graphics]::FromImage($b); $g.Clear([System.Drawing.ColorTranslator]::FromHtml($p.bg)); $g.TextRenderingHint = "AntiAliasGridFit"; ' +
@@ -1120,7 +1123,7 @@ function drawWords(ui: ElementTable, th: Theme, text: string, extra: { dim?: boo
     <Text dir={rtl ? 'rtl' : undefined} dimColor={extra.dim}>
       {textWords(text).map(sg => (
         <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} underline={sg.link}
-          color={sg.code ? th.user.border : sg.num ? 'warning' : sg.path ? 'permission' : th.claude.text}>{sg.text}</Text>
+          color={sg.code ? th.user.border : sg.num ? optColor('numberColor', 'warning') : sg.path ? optColor('pathColor', 'permission') : th.claude.text}>{sg.text}</Text>
       ))}
     </Text>
   )
@@ -1143,7 +1146,7 @@ function drawLinkedWords($: EngineInterface, ui: ElementTable, th: Theme, text: 
       {textWords(text).map((sg, k) => {
         const abs = sg.path ? absPath(sg.text) : undefined
         if (abs) return <Markdown key={`${key}-${k}`} text={`[${sg.text}](file://${encodeURI(abs)})`} onLinkPress={() => viewFile($, abs)} />
-        return <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} color={sg.code ? th.user.border : sg.num ? 'warning' : sg.path ? 'permission' : th.claude.text}>{sg.text}</Text>
+        return <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} color={sg.code ? th.user.border : sg.num ? optColor('numberColor', 'warning') : sg.path ? optColor('pathColor', 'permission') : th.claude.text}>{sg.text}</Text>
       })}
     </Box>
   )
@@ -1797,11 +1800,44 @@ function c4Of(src: string): Model | undefined {
   return m.boxes.length ? m : undefined
 }
 
+// mermaidAscii: box drawing and blocks as plain ASCII, for terminals or fonts that lack them.
+const ASCII: Record<string, string> = { '─': '-', '━': '=', '┄': '.', '│': '|', '┊': ':', '╭': '+', '╮': '+', '╰': '+', '╯': '+', '┌': '+', '┐': '+', '└': '+', '┘': '+', '├': '+', '┤': '+', '┬': '+', '┴': '+', '┼': '+', '▶': '>', '◀': '<', '▷': '>', '◆': '*', '◇': 'o', '●': 'o', '◉': '@', '○': 'o', '▢': '#', '█': '#', '▏': '|', '↺': '^', '·': '.', '✓': 'v', '✗': 'x', '▲': '^', '▼': 'v' }
+const asciiArt = (t: string) => [...t].map(ch => ASCII[ch] ?? (/[▎▍▌▋▊▉]/.test(ch) ? '#' : ch)).join('')
+// pieStyle round: the pie as a circle of coloured cells (a cell is twice as tall as wide), the
+// legend beside it, largest slice first.
+function pieCircle(chart: Chart, room: number): Seg2[][] | undefined {
+  const R = 6, H = 2 * R + 1, W = 4 * R + 2
+  const total = chart.rows.reduce((a, r) => a + r.values[0]!, 0) || 1
+  const legend = chart.rows.map((r, k) => [{ text: '█ ', role: 'ink:' + SERIES_INKS[k % SERIES_INKS.length] }, { text: r.label, role: 'strong' }, { text: ` ${Math.round((r.values[0]! / total) * 100)}%`, role: 'note' }] as Seg2[])
+  if (W + 3 + Math.max(...legend.map(l => strWidth(l.map(sg => sg.text).join('')))) > room) return undefined
+  const bounds: number[] = []
+  chart.rows.reduce((a, r) => { bounds.push(a + r.values[0]! / total); return a + r.values[0]! / total }, 0)
+  const out: Seg2[][] = chart.title ? [[{ text: chart.title, role: 'strong' }]] : []
+  for (let y = 0; y < H; y++) {
+    const row: Seg2[] = []
+    for (let x = 0; x < W; x++) {
+      const dx = (x + 0.5 - W / 2) / (W / 2), dy = (y + 0.5 - H / 2) / (H / 2)
+      let role: string | undefined, ch = ' '
+      if (dx * dx + dy * dy <= 1) {
+        const turn = ((Math.atan2(dx, -dy) / (2 * Math.PI)) + 1) % 1
+        const k = bounds.findIndex(b => turn < b)
+        role = 'ink:' + SERIES_INKS[(k < 0 ? bounds.length - 1 : k) % SERIES_INKS.length]; ch = '█'
+      }
+      const last = row.at(-1)
+      if (last && last.role === role) last.text += ch; else row.push({ text: ch, role })
+    }
+    const l = y - Math.floor((H - legend.length) / 2)
+    out.push([...row, { text: '   ' }, ...(l >= 0 && l < legend.length ? legend[l]! : [])])
+  }
+  return out
+}
+
 // One rich block, or undefined to leave the part to the drawing it had before.
 function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button, Markdown, Code } = ui
   const ink = readableOn(th.claude.fill, th.claude.border)
   const withCopy = (body: any, label: string, what: string, top = false) => {
+    if (opt<unknown>('textCopyButtons', true) === false) return body // lists, quotes and alerts without a copy button
     const copy = <Button key={'copy-' + i} plain dimColor label={label} onPress={p => copyText($, part.copy, what, p.surface)} />
     if (hov) return <Box flexDirection="column">{body}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box>
     return top ? <Box flexDirection="column"><Box justifyContent="flex-end">{copy}</Box>{body}</Box> : body
@@ -1809,10 +1845,10 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
   if (part.kind === 'heading') {
     const level = part.level ?? 1
     const style = String(opt('headingStyle', 'banner'))
-    const color = level <= 2 ? th.claude.label : level === 3 ? ink : th.claude.text
+    const color = optColor('headingColor', level <= 2 ? th.claude.label : level === 3 ? ink : th.claude.text)
     const words = (
       <Text>
-        {cellWords(part.copy).map(sg => <Text bold color={sg.code ? th.user.border : color} italic={sg.italic} underline={style === 'underline' && level <= 2}>{sg.text}</Text>)}
+        {cellWords(style === 'uppercase' && level === 1 ? part.copy.toUpperCase() : part.copy).map(sg => <Text bold color={sg.code ? th.user.border : color} italic={sg.italic} underline={style === 'underline' && level <= 2}>{sg.text}</Text>)}
       </Text>
     )
     if (style === 'banner' && level === 1) return <Box marginTop={i ? 1 : 0}><Box borderStyle="round" borderColor={th.claude.border} paddingX={1}>{words}</Box></Box>
@@ -1840,7 +1876,7 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
       ? <Text><Text color="success">{'▰'.repeat(Math.round((done / tasks.length) * width))}</Text><Text dimColor>{'▱'.repeat(width - Math.round((done / tasks.length) * width)) + `  ${done}/${tasks.length} done`}</Text></Text>
       : null
     const rows = items.map(it => {
-      const mark = it.task ? marks[it.task === 'done' ? 1 : 0] : /^\d/.test(it.marker) ? it.marker : BULLETS[it.depth % BULLETS.length]!
+      const mark = it.task ? marks[it.task === 'done' ? 1 : 0] : /^\d/.test(it.marker) ? it.marker : opt<string>('listMarker', 'dots') === 'dash' ? '-' : BULLETS[it.depth % BULLETS.length]!
       const plain = colorText() && plainParagraphs(it.text)
       if (isRtl(it.text)) {
         return (
@@ -1853,14 +1889,14 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
       if (plain && it.task !== 'done') {
         return (
           <Box paddingLeft={it.depth * 2}>
-            <Box width={[...mark].length + 1} flexShrink={0}><Text color={ink}>{mark}</Text></Box>
+            <Box width={[...mark].length + 1} flexShrink={0}><Text color={optColor('bulletColor', ink)}>{mark}</Text></Box>
             <Box flexGrow={1} flexShrink={1}>{drawWords(ui, th, it.text.replace(/\s*\n\s*/g, ' '))}</Box>
           </Box>
         )
       }
       return (
         <Box paddingLeft={it.depth * 2}>
-          <Box width={[...mark].length + 1} flexShrink={0}><Text color={it.task === 'done' ? 'success' : ink}>{mark}</Text></Box>
+          <Box width={[...mark].length + 1} flexShrink={0}><Text color={it.task === 'done' ? 'success' : optColor('bulletColor', ink)}>{mark}</Text></Box>
           <Box flexGrow={1} flexShrink={1}>
             {it.task === 'done' ? <Text dimColor strikethrough>{plainCell(it.text)}</Text> : <Markdown text={it.text} />}
           </Box>
@@ -1872,7 +1908,8 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
   if (part.kind === 'quote') {
     const alert = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\n?/i.exec(part.copy)
     if (alert) {
-      const a = ALERTS[alert[1]!.toUpperCase()]!
+      const base = ALERTS[alert[1]!.toUpperCase()]!
+      const a = { ...base, ink: optColor(`alert${base.label}Color`, base.ink)! }
       const rest = part.copy.slice(alert[0].length).trim()
       return withCopy(
         <Box flexDirection="column" borderStyle="round" borderColor={a.ink} paddingX={1}>
@@ -1904,7 +1941,8 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
 // A figure, chart or flowchart, with [ copy source ] and [ copy art ]; undefined leaves it code.
 function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button } = ui
-  const accent = readableOn(th.claude.fill, th.claude.border)
+  if (part.lang === 'mermaid' && opt<unknown>('mermaid', true) === false) return undefined // mermaid off: the source as code
+  const accent = optColor('diagramColor', readableOn(th.claude.fill, th.claude.border))
   const roleInk: Record<string, { color?: string; dimColor?: true; bold?: true }> = {
     accent: { color: accent }, warn: { color: 'error' }, ok: { color: 'success' }, note: { color: 'warning' },
     dim: { dimColor: true }, strong: { bold: true, color: th.claude.label },
@@ -1922,7 +1960,7 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
     const gantt = chart || flow || seq ? undefined : ganttOf(part.copy)
     const state = chart || flow || seq || gantt ? undefined : stateOf(part.copy)
     const model = chart || flow || seq || gantt || state ? undefined : modelOf(part.copy)
-    if (chart) rows = chartRows(chart, room)
+    if (chart) rows = (chart.pie && opt<string>('pieStyle', 'bars') === 'round' ? pieCircle(chart, room) : undefined) ?? chartRows(chart, room)
     else if (flow) rows = flowRows(flow, room)
     else if (seq) rows = seqRows(seq, room)
     else if (gantt) rows = ganttRows(gantt, room)
@@ -1932,6 +1970,7 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
       ?? timelineRows(part.copy, room) ?? sankeyRows(part.copy, room) ?? ((c4) => (c4 ? modelRows(c4, room) : undefined))(c4Of(part.copy))
     // a kind undertone does not draw, or one too wide for the bubble: the source stays readable as code
     if (!rows) return undefined
+    if (opt<unknown>('mermaidAscii', false) === true) rows = rows.map(r => r.map(sg => ({ ...sg, text: asciiArt(sg.text) })))
   }
   if (!rows) {
     return (
@@ -2151,9 +2190,24 @@ function setupSteps() {
 
 // ---------- On / off ----------
 // /undertone off|on for this session; the `enabled` option is the default.
-async function isOn($: EngineInterface) {
+// On for this row: switched on, and drawn on a surface the surfaces setting names ("all", or a
+// list like "terminal,vscode"); the rest keep Claude Code's own drawing.
+async function isOn($: EngineInterface, e?: { surface?: string }) {
   const v = (await $.state.get(ENABLED)).value
-  return v ?? opt<unknown>('enabled', true) !== false
+  if (!(v ?? opt<unknown>('enabled', true) !== false)) return false
+  const surfaces = String(opt('surfaces', 'all')).toLowerCase().split(/[\s,]+/).filter(Boolean)
+  return !e?.surface || surfaces.includes('all') || surfaces.includes(e.surface)
+}
+// Settings for the parts of a reply undertone draws.
+const copyOn = () => opt<unknown>('copyButtons', true) !== false
+// Without copy buttons: the drawing with every copy button (and the dim "copy" before a copy row)
+// taken out, so no row has to know.
+function stripCopies(node: any): any {
+  if (Array.isArray(node)) return node.map(stripCopies).filter(x => x !== null)
+  if (!node || typeof node !== 'object') return node
+  if (node.type === 'Button' && /^(copy|cells|html|art|png|src)-/.test(String(node.props?.key ?? node.key ?? ''))) return null
+  if (node.type === 'Text' && node.props?.dimColor && JSON.stringify(node.children) === '["copy"]') return null
+  return node.children ? { ...node, children: stripCopies(node.children) } : node
 }
 
 // ---------- Fold old turns ----------
@@ -2682,7 +2736,7 @@ export const register: Register = (on, options) => {
 
   // Your prompt: a right-aligned blue bubble. Notifications/teammate rows keep the engine's look.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
     if (!isYours(e.props.origin)) {
       if (e.props.isExpanded) return next(e)
       const { Text, Box: B0 } = $.ui.resolve(e)
@@ -2816,7 +2870,7 @@ export const register: Register = (on, options) => {
   // Claude's reply: each text block in a left-aligned Claude-coloured bubble; label on the first.
   // The engine refuses its own node under a sized Box, so the bubble draws the markdown itself.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
     const { Box, Text, Markdown, Button } = $.ui.resolve(e)
     const text = e.props.text
     const first = e.props.isFirstOfReply
@@ -2832,7 +2886,7 @@ export const register: Register = (on, options) => {
     const lines = text.split('\n')
     const foldId = `${e.requestId ?? ''}:${text.length}`
     const isLong = lines.length > FOLD_LINES
-    const isOpen = isLong && ((await $.state.get({ ...MORE, id: foldId })).value ?? false)
+    const isOpen = isLong && ((await $.state.get({ ...MORE, id: foldId })).value ?? opt<string>('folds', 'closed') === 'open')
     let shown = text
     if (isLong && !isOpen) {
       const head = lines.slice(0, FOLD_LINES)
@@ -2862,7 +2916,7 @@ export const register: Register = (on, options) => {
     const pinned = await isPinned($, text)
     const star = await starButton($, Button, 'Claude', text, await msOf($, e.requestId, text))
     const reactions = await reactionRow($, { Box, Button }, textKey(text))
-    return (
+    const reply = (
       <Box marginTop={first ? th.spacing : 0}>
         <Box key="bubble" width={w} {...bubbleBox(th.claude, th.padding)} {...(hov ? { hover: { scope } } : {})}>
           <Box justifyContent="space-between">
@@ -2944,26 +2998,31 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
+    return copyOn() ? reply : stripCopies(reply)
   })
 
   // Tool calls: one dim line each. [+] opens a row; ctrl+o (isExpanded) shows every row in full.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
+    if (opt<unknown>('toolRows', true) === false) return next(e) // Claude Code's own tool rows
     if (e.props.isExpanded) return next(e)
     if (await isFolded($, await msOf($, e.props.tool_use_id))) { const { Box: Bx } = $.ui.resolve(e); return <Bx /> }
     if (isAgentTool(e.props.tool)) return drawAgent($, e)
-    return drawRows($, $.ui.resolve(e), [await rowOf($, e.props, e.viewport?.columns)])
+    const drawn = drawRows($, $.ui.resolve(e), [await rowOf($, e.props, e.viewport?.columns)])
+    return copyOn() ? drawn : stripCopies(drawn)
   })
   // Results: the opened row draws the output itself, so this stays hidden unless ctrl+o.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
+    if (opt<unknown>('toolRows', true) === false) return next(e) // Claude Code's own tool rows
     if (e.props.isExpanded) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
   // Folded runs ("Read 3 files, ran 2 commands") become the same compact rows, one per call.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
+    if (opt<unknown>('toolRows', true) === false) return next(e) // Claude Code's own tool rows
     if (e.props.isExpanded) return next(e)
     if (await isFolded($, await msOf($, e.props.calls[0]?.tool_use_id))) { const { Box: Bx } = $.ui.resolve(e); return <Bx /> }
     const calls = e.props.calls
@@ -2993,7 +3052,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
     if (e.props.isExpanded || e.props.waitingFor) return next(e)
     const { Text } = $.ui.resolve(e)
     const turns = (await $.state.get(TURNS)).value ?? {}
@@ -3086,7 +3145,7 @@ export const register: Register = (on, options) => {
 
   // Claude Code's own working line, with the turn's tool count: "Sauteing · 3 tools…".
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
     const n = (await $.state.get(TURN_TOOLS)).value ?? 0
     if (!n) return next(e)
     return next({ ...e, props: { ...e.props, message: `${e.props.message ?? e.props.word} · ${n} tool${n === 1 ? '' : 's'}` } })
@@ -3095,7 +3154,7 @@ export const register: Register = (on, options) => {
   // The band above the prompt: who's working ("● Explore · find the config  ○ planner (done)"),
   // then, once Claude has answered, quick replies.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!(await isOn($)) || e.props.hasSurvey) return next(e)
+    if (!(await isOn($, e)) || e.props.hasSurvey) return next(e)
     const strip = await agentStrip($)
     const raw = String(opt('quickReplies', 'Go ahead|Explain more|Shorter, please')).trim()
     const replies = raw.toLowerCase() === 'off' ? [] : raw.split('|').map(r => r.trim()).filter(Boolean).slice(0, 6)
@@ -3122,7 +3181,7 @@ export const register: Register = (on, options) => {
 
   // Context meter at the end of the hint line under the prompt.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
+    if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
     const pct = (await $.state.get(CTX)).value
     if (pct === null || pct === undefined) return next(e)
     const meter = `ctx ${Math.round(pct)}%${pct >= 85 ? ' ⚠ compact soon' : pct >= 60 ? ' ▲' : ''}`
@@ -3193,7 +3252,7 @@ export const register: Register = (on, options) => {
   // Every other command's output as a system card: the command in Claude's colour, [ copy ]
   // and the time; a red frame and ✗ when it failed. undertone's own pins and gallery draw above.
   on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
-    if (!(await isOn($)) || !e.props.text.trim()) return next(e)
+    if (!(await isOn($, e)) || !e.props.text.trim()) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const th = await themeOf($)
     const cols = e.viewport?.columns ?? 80
@@ -3221,7 +3280,7 @@ export const register: Register = (on, options) => {
   // Claude's question dialog under a "Claude asks" header. No frame: the dialog draws its rules
   // at the full width, and a frame's columns would wrap them.
   on('ui.render', { component: 'AskUserQuestion' }, async ($, e, next) => {
-    if (!(await isOn($)) || e.surface !== 'terminal') return next(e)
+    if (!(await isOn($, e)) || e.surface !== 'terminal') return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const th = await themeOf($)
     const dialog = await next(e)
@@ -3261,7 +3320,7 @@ export const register: Register = (on, options) => {
 
   // Footer mode labels as pills in the theme's chip colour.
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    if (!(await isOn($)) || !e.props.modes.length) return next(e)
+    if (!(await isOn($, e)) || !e.props.modes.length) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const th = await themeOf($)
     return <Box columnGap={1}>{e.props.modes.map(m => <Text backgroundColor={th.chip} color={readableOn(th.chip, '#FFFFFF')}>{' ' + m + ' '}</Text>)}</Box>
@@ -3270,7 +3329,7 @@ export const register: Register = (on, options) => {
   // "(ctrl+b to run in background)" under a running tool, quieter: "ctrl+b · background", or none.
   on('ui.render', { component: 'ToolProgress' }, async ($, e, next) => {
     const how = String(opt('backgroundHint', 'compact'))
-    if (!(await isOn($)) || e.props.kind !== 'background_hint' || how === 'engine') return next(e)
+    if (!(await isOn($, e)) || e.props.kind !== 'background_hint' || how === 'engine') return next(e)
     const key = /^\(?(.+?) to run in background\)?$/.exec(e.props.hint.trim())?.[1]
     return next({ ...e, props: { ...e.props, hint: how === 'hidden' ? '' : key ? `↧ ${key} · background` : e.props.hint } })
   })
