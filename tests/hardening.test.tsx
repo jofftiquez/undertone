@@ -223,3 +223,15 @@ test('turns of similar length each get their own summary', async ($, on) => {
     await row.unmount()
   }
 })
+
+test('slash commands named in a prompt are highlighted; paths and unknown names stay plain', async ($, on) => {
+  machine(on)
+  on('command.list', () => ({ value: [{ name: 'undertone-theme', description: '', source: 'plugin' }, { name: 'tmp', description: '', source: 'builtin' }] }))
+  await start($)
+  const ui = await $.ui.mount(you('try /undertone-theme. Logs are in /tmp/x and /nope'))
+  const bold = (await ui.findAll({ type: 'Text' })).filter((t: any) => t.props.bold).map((t: any) => t.text as string)
+  expect(bold).toContain('/undertone-theme')
+  expect(bold.some(t => t.includes('/tmp') || t.includes('/nope'))).toBe(false)
+  expect((await ui.find({ type: 'Text', text: /try \/undertone-theme\. Logs are in \/tmp\/x and \/nope/ }))).toBeDefined()
+  await ui.unmount()
+})

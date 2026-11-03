@@ -82,6 +82,7 @@ table.
 
 ### Small things that add up
 
+- **Slash commands stand out**: a command you mention in a prompt (`try /undertone-theme`) is drawn bold in Claude's colour. Only real commands count, so paths like `/tmp/x` stay plain. (A command you run on its own is drawn by Claude Code, not as a bubble.)
 - **Copy buttons** on every reply, code block, quote and table; in fullscreen they appear only when you point at the bubble. They use Claude Code's own clipboard, so they work over SSH too.
 - **Pins**: `☆` on any bubble, then `/undertone-pins` lists what you pinned, with times. Pins survive restarts.
 - **Export**: `/undertone-export` writes the conversation to Markdown with every timestamp.
@@ -169,7 +170,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 185 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 186 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code

@@ -202,6 +202,24 @@ const timeInk = (s: Side) => (s.fill ? { color: s.text ?? readableOn(s.fill, und
 const sideLabel = (s: Side) => (s.icon ? s.icon + ' ' : '') + s.name
 const rule = (ch: string, n = 6) => ch.repeat(n)
 const IMAGE_TOKEN = /\[Image #(\d+)\]/g
+// A slash command named in a prompt ("try /undertone-theme"). Only names the engine lists count,
+// so a path like /tmp or /Users/me stays plain. ponytail: the list is fetched per row, no cache.
+const SLASH = /(^|[\s([{"'`])\/([A-Za-z][\w:.-]*)/g
+function slashParts(text: string, names: ReadonlySet<string>): { text: string; cmd?: true }[] {
+  const parts: { text: string; cmd?: true }[] = []
+  let last = 0
+  for (const m of text.matchAll(SLASH)) {
+    const name = m[2]!.replace(/[.:-]+$/, '') // "/undertone-theme." ends a sentence
+    const start = m.index! + m[1]!.length
+    const end = start + 1 + name.length
+    if (!names.has(name) || text[end] === '/') continue // not a command, or a path that starts like one
+    if (start > last) parts.push({ text: text.slice(last, start) })
+    parts.push({ text: '/' + name, cmd: true })
+    last = end
+  }
+  if (last < text.length) parts.push({ text: text.slice(last) })
+  return parts
+}
 // The first field that says what a call did (Bash command, file path, pattern, ...).
 // ---------- Tool rows in plain words ----------
 // "Ran gh pr view 12", "Read ~/src/app.ts", "Searched src for "todo"". Paths are shown
@@ -1174,7 +1192,10 @@ export const register: Register = (on, options) => {
             </Text>
             {hov && pinned ? star : reveal(Box, hov, scope, 'star-reveal', star)}
           </Box>
-          <Text color={th.user.text}>{e.props.text}</Text>
+          <Text color={th.user.text}>
+            {slashParts(e.props.text, new Set((await $.command.list().catch(() => [])).map(c => c.name)))
+              .map(p => (p.cmd ? <Text bold color={readableOn(th.user.fill, th.claude.border)}>{p.text}</Text> : p.text))}
+          </Text>
           {imageNos.length > 0 && (
             <Box flexWrap="wrap" columnGap={1}>
               {imageNos.map(n => {
