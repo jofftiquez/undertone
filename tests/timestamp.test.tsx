@@ -5,14 +5,14 @@ const PROMPT = {
   surface: 'terminal',
   component: 'UserMessage',
   requestId: 'row-1',
-  props: { text: 'hi', origin: { kind: 'composer' }, isExpanded: true },
+  props: { text: 'hi', origin: { kind: 'composer' as const }, isExpanded: true },
 } as const
 
 const NOW = Date.UTC(2026, 10, 3, 7, 41) // 3:41 PM at UTC+8
 
 test('a stamped prompt shows its local time in the You header', async ($, on) => {
   on('clock.now', () => ({ value: NOW }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: '+0800\n', stderr: '' } }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '+0800\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('state.get', (_, e) => ({ value: e.key === 'stamps' ? { value: NOW, version: 1 } : { value: undefined, version: 0 } }))
 

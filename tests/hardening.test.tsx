@@ -3,6 +3,7 @@
 import { expect, test } from 'claude-code/testing'
 
 const P = 'undertone'
+const CMD = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 const NOW = Date.UTC(2026, 10, 3, 8, 0)
 type Run = { argv: string[]; stdin?: string; timeoutMs?: number }
 function machine(on: any, env: Record<string, string> = { HOME: '/home/u', TMPDIR: '/tmp' }) {
@@ -33,8 +34,8 @@ function machine(on: any, env: Record<string, string> = { HOME: '/home/u', TMPDI
   return { runs, config }
 }
 const start = ($: any) => $.session.start({ cwd: '/work/proj', surface: 'terminal', isInteractive: true })
-const you = (text = 'hello', viewport?: object) => ({ plugin: P, surface: 'terminal' as const, component: 'UserMessage' as const, requestId: 'u1', props: { text, origin: { kind: 'composer' }, isExpanded: false }, ...(viewport ? { viewport } : {}) })
-const reply = (text = 'a reply\n```ts\nconst a = 1\n```', viewport?: object) => ({ plugin: P, surface: 'terminal' as const, component: 'AssistantMessage' as const, requestId: 'a1', props: { text, isFirstOfReply: true }, ...(viewport ? { viewport } : {}) })
+const you = (text = 'hello', viewport?: { columns: number; rows: number; isFullscreen?: boolean }) => ({ plugin: P, surface: 'terminal' as const, component: 'UserMessage' as const, requestId: 'u1', props: { text, origin: { kind: 'composer' as const }, isExpanded: false }, ...(viewport ? { viewport } : {}) })
+const reply = (text = 'a reply\n```ts\nconst a = 1\n```', viewport?: { columns: number; rows: number; isFullscreen?: boolean }) => ({ plugin: P, surface: 'terminal' as const, component: 'AssistantMessage' as const, requestId: 'a1', props: { text, isFirstOfReply: true }, ...(viewport ? { viewport } : {}) })
 const tool = (tool: string, input: object) => ({ plugin: P, surface: 'terminal' as const, component: 'ToolUse' as const, requestId: 't-' + tool, props: { tool_use_id: 't-' + tool, tool, input, isRunning: false, isErrored: false, isInterrupted: false } })
 const bubbleOf = async (ui: any) => (await ui.findAll({ type: 'Box' })).find((b: any) => b.key === 'bubble')
 
@@ -140,7 +141,7 @@ test('7. a group of calls is one summary row that opens on press', async ($, on)
 test('8. setup previews a choice and Save writes it to /config', async ($, on) => {
   const { config } = machine(on)
   await start($)
-  await $.command.run({ command: 'undertone', args: 'setup' })
+  await $.command.run({ command: 'undertone', args: 'setup', ...CMD })
   const pane = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'Pane', requestId: 'undertone-setup', props: { title: 'Undertone setup', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } })
   await $.ui.press({ plugin: P, key: 'opt-dracula', requestId: 'undertone-setup' })
   const boxes = await pane.findAll({ type: 'Box' })
@@ -160,7 +161,7 @@ test('10. random picks a dark preset', { options: { theme: 'random' } }, async (
   // any dark preset may come up, borderless ones (messenger) included: the bubble just has to draw
   expect(await bubbleOf(ui)).toBeDefined()
   await ui.unmount()
-  const out = JSON.stringify(await $.command.run({ command: 'undertone-theme', args: '' }))
+  const out = JSON.stringify(await $.command.run({ command: 'undertone-theme', args: '', ...CMD }))
   const current = /current: ([a-z0-9-]+)/.exec(out)?.[1] ?? ''
   expect(current).not.toBe('')
   expect(current).not.toMatch(/light|latte|dawn|mono|terminal/)
@@ -176,11 +177,11 @@ test('10. enabled=false hands every row back to Claude Code', { options: { enabl
 test('10. /undertone off and on switch for the session', async ($, on) => {
   machine(on)
   await start($)
-  await $.command.run({ command: 'undertone', args: 'off' })
+  await $.command.run({ command: 'undertone', args: 'off', ...CMD })
   let ui = await $.ui.mount(reply('x'))
   expect((await ui.find({ type: 'Text' }))?.text).toBe('ENGINE')
   await ui.unmount()
-  await $.command.run({ command: 'undertone', args: 'on' })
+  await $.command.run({ command: 'undertone', args: 'on', ...CMD })
   ui = await $.ui.mount(reply('back again'))
   expect(await bubbleOf(ui)).toBeDefined()
   await ui.unmount()
@@ -193,12 +194,31 @@ test('a prompt that is not yours mid-turn does not reset the tool count', async 
   on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
   on('session.usage', () => ({ value: { startedAt: NOW, context: { window: 200000 }, rateLimits: [], cost: { usd: 1 } } }))
   await start($)
-  await $.prompt.submit({ text: 'go', origin: { kind: 'composer' } })
+  await $.prompt.submit({ text: 'go', wait: false, origin: { kind: 'composer' as const } })
   await $.tool.call({ tool: 'Bash', command: 'ls' })
-  await $.prompt.submit({ text: 'skills listing', origin: { kind: 'plugin', name: 'other' } })
+  await $.prompt.submit({ text: 'skills listing', wait: false, origin: { kind: 'plugin', name: 'other' } })
   await $.tool.call({ tool: 'Bash', command: 'pwd' })
   await $.turn.complete({ answer: 'ok', durationMs: 4000, isAborted: false, turnId: 't', reason: 'answer' })
   const row = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'TurnDuration', requestId: 'td', props: { word: 'Baked', durationMs: 4000 } })
   expect((await row.find({ type: 'Text', text: /2 tools/ }))).toBeDefined()
   await row.unmount()
+})
+
+test('turns of similar length each get their own summary', async ($, on) => {
+  machine(on)
+  on('prompt.submit', (_: any, e: any) => e)
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
+  await start($)
+  await $.prompt.submit({ text: 'one', wait: false, origin: { kind: 'composer' as const } })
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await $.turn.complete({ answer: 'ok', durationMs: 4000, isAborted: false, turnId: 't1', reason: 'answer' })
+  await $.prompt.submit({ text: 'two', wait: false, origin: { kind: 'composer' as const } })
+  for (const c of ['a', 'b', 'c']) await $.tool.call({ tool: 'Bash', command: c })
+  await $.turn.complete({ answer: 'ok', durationMs: 4900, isAborted: false, turnId: 't2', reason: 'answer' })
+  for (const [ms, want] of [[4000, /1 tool\b/], [4900, /3 tools/]] as const) {
+    const row = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'TurnDuration', requestId: 'td' + ms, props: { word: 'Baked', durationMs: ms } })
+    expect(await row.find({ type: 'Text', text: want })).toBeDefined()
+    await row.unmount()
+  }
 })

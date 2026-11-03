@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 const P = 'undertone'
+const CMD = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 const NOW = Date.UTC(2026, 10, 3, 8, 0)
 const THEMES = ["default", "sharp", "double", "bold", "dashed", "minimal", "terminal", "mono", "messenger", "messenger-light", "dracula", "catppuccin-mocha", "catppuccin-macchiato", "catppuccin-latte", "tokyo-night", "nord", "gruvbox", "gruvbox-light", "solarized-dark", "solarized-light", "one-dark", "monokai", "github-dark", "github-light", "rose-pine", "rose-pine-dawn", "everforest", "kanagawa", "ayu", "night-owl", "palenight", "synthwave-84", "cobalt2", "horizon", "material", "tomorrow-night", "ocean", "forest", "sunset"]
 function base(on: any) {
@@ -12,7 +13,7 @@ function base(on: any) {
   on('fs.list', () => ({ value: [] }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: '+0800\n', stderr: '' } }))
 }
-const you = (text = 'hello there') => ({ plugin: P, surface: 'terminal' as const, component: 'UserMessage' as const, requestId: 'u', props: { text, origin: { kind: 'composer' }, isExpanded: false } })
+const you = (text = 'hello there') => ({ plugin: P, surface: 'terminal' as const, component: 'UserMessage' as const, requestId: 'u', props: { text, origin: { kind: 'composer' as const }, isExpanded: false } })
 const claude = (text = 'a reply') => ({ plugin: P, surface: 'terminal' as const, component: 'AssistantMessage' as const, requestId: 'a', props: { text, isFirstOfReply: true } })
 // The outermost bubble Box: the first Box with a width.
 async function bubble(ui: any) { return (await ui.findAll({ type: 'Box' })).find((b: any) => typeof b.props.width === 'number') }
@@ -63,9 +64,9 @@ test('labels, icons, colours, alignment and padding are overridable', { options:
 test('/undertone-theme lists every preset and switches', async ($, on) => {
   base(on)
   on('store.set', () => ({ value: undefined }))
-  const out = JSON.stringify(await $.command.run({ command: 'undertone-theme', args: '' }))
+  const out = JSON.stringify(await $.command.run({ command: 'undertone-theme', args: '', ...CMD }))
   for (const n of THEMES) expect(out).toContain(n)
-  expect(JSON.stringify(await $.command.run({ command: 'undertone-theme', args: 'tokyo-night' }))).toContain('Neon city blues')
+  expect(JSON.stringify(await $.command.run({ command: 'undertone-theme', args: 'tokyo-night', ...CMD }))).toContain('Neon city blues')
   const u = await $.ui.mount(you()); expect((await bubble(u))?.props.borderColor).toBe('#7AA2F7'); await u.unmount()
 })
 

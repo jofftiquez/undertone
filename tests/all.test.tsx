@@ -2,6 +2,7 @@
 import { expect, test } from 'claude-code/testing'
 
 const P = 'undertone'
+const CMD = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 const NOW = Date.UTC(2026, 10, 3, 8, 0) // 4:00 PM at UTC+8
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString()
 const line = (o: object) => JSON.stringify(o)
@@ -58,7 +59,7 @@ function engine(on: any, opts: { transcript?: string; cwd?: string } = {}) {
 const start = ($: any) => $.session.start({ cwd: '/work/proj', surface: 'terminal', isInteractive: true })
 const prompt = (requestId: string, text: string) => ({
   plugin: P, surface: 'terminal' as const, component: 'UserMessage' as const, requestId,
-  props: { text, origin: { kind: 'composer' }, isExpanded: false },
+  props: { text, origin: { kind: 'composer' as const }, isExpanded: false },
 })
 const reply = (requestId: string, text: string) => ({
   plugin: P, surface: 'terminal' as const, component: 'AssistantMessage' as const, requestId,
@@ -107,7 +108,7 @@ test('session end deletes the saved images', async ($, on) => {
   const { runs } = engine(on, { transcript: TRANSCRIPT })
   on('session.end', () => ({ sessionId: 'sess-1234-abcd' }))
   await start($)
-  await $.session.end({ reason: 'other' })
+  await $.session.end({ reason: 'other', sessionId: 'sess-1234', resume: { id: 'sess-1234' } })
   expect(runs.some(r => r.argv.join(' ').includes('rm -f'))).toBe(true)
 })
 
@@ -163,7 +164,7 @@ test('☆ pins a bubble and /undertone-pins lists it', async ($, on) => {
   const star = (await ui.findAll({ type: 'Button' })).find(b => String(b.props.label).includes('☆'))
   expect(star).toBeDefined()
   await $.ui.press({ plugin: P, key: star!.key!, requestId: 'r3' })
-  const out = await $.command.run({ command: 'undertone-pins', args: '' })
+  const out = await $.command.run({ command: 'undertone-pins', args: '', ...CMD })
   expect(JSON.stringify(out)).toContain('pin me please')
   await ui.unmount()
 })
@@ -173,7 +174,7 @@ test('/undertone-theme switches the palette', async ($, on) => {
   engine(on)
   on('store.set', () => ({ value: undefined }))
   await start($)
-  const out = await $.command.run({ command: 'undertone-theme', args: 'sunset' })
+  const out = await $.command.run({ command: 'undertone-theme', args: 'sunset', ...CMD })
   expect(JSON.stringify(out)).toContain('sunset')
   const ui = await $.ui.mount(prompt('x', 'hello'))
   expect(JSON.stringify(await ui.find({ type: 'Text', text: /^You$/ }))).toContain('#FF8A65')
@@ -190,7 +191,7 @@ test('a failing tool call is counted, summarised in red and notified on a long t
   // Stand-in for the engine's own spinner drawing: shows the message it is handed.
   on('ui.render', ($: any, e: any) => { const { Text } = $.ui.resolve(e); return <Text>{e.props.message ?? e.props.word}</Text> })
   await start($)
-  await $.prompt.submit({ text: 'go' })
+  await $.prompt.submit({ text: 'go', wait: false, origin: { kind: 'composer' } })
   await $.tool.call({ tool: 'Bash', command: 'false' })
   const spin = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'Spinner', requestId: 's', props: { word: 'Sauteing', message: null, suffix: '…', mode: 'tool-use' } })
   expect((await spin.find({ type: 'Text', text: /Sauteing · 1 tool/ }))?.text).toBe('Sauteing · 1 tool')
@@ -237,7 +238,7 @@ test('/undertone-export writes Markdown with timestamps', async ($, on) => {
     { role: 'assistant', text: 'first reply', toolUses: [] },
   ] }))
   await start($)
-  const out = await $.command.run({ command: 'undertone-export', args: '/tmp/x.md' })
+  const out = await $.command.run({ command: 'undertone-export', args: '/tmp/x.md', ...CMD })
   expect(JSON.stringify(out)).toContain('2 with times')
   expect(writes['/tmp/x.md']).toContain('### You · 2:40:00.000 PM UTC+8')
   expect(writes['/tmp/x.md']).toContain('first reply')
@@ -255,9 +256,9 @@ test('on Windows the mod uses PowerShell for clipboard, files, transcript and no
   const r = await $.ui.mount(reply('w1', 'copy me'))
   await $.ui.press({ plugin: P, key: 'copy-all', requestId: 'w1' })
   await r.unmount()
-  await $.prompt.submit({ text: 'go' })
+  await $.prompt.submit({ text: 'go', wait: false, origin: { kind: 'composer' } })
   await $.turn.complete({ answer: 'ok', durationMs: 60000, isAborted: false, turnId: 't', reason: 'answer' })
-  await $.session.end({ reason: 'other' })
+  await $.session.end({ reason: 'other', sessionId: 'sess-1234', resume: { id: 'sess-1234' } })
   const isPs = (x: Run) => /powershell\.exe$/i.test(x.argv[0] ?? '')
   const shells = runs.filter(x => !isPs(x)).map(x => x.argv.join(' '))
   // the only sh allowed on Windows is the legacy transcript guess, which fails harmlessly there
@@ -270,5 +271,4 @@ test('on Windows the mod uses PowerShell for clipboard, files, transcript and no
   expect(ps.some(c => c.includes('Set-Clipboard'))).toBe(true)
   expect(ps.some(c => c.includes('ToastNotificationManager'))).toBe(true)
   expect(ps.some(c => c.includes('Remove-Item'))).toBe(true)
-  for (const c of ps) console.log('PSCRIPT ' + JSON.stringify(c))
 })

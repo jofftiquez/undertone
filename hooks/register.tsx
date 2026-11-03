@@ -1311,8 +1311,11 @@ export const register: Register = (on, options) => {
     if (e.props.isExpanded || e.props.waitingFor) return next(e)
     const { Text } = $.ui.resolve(e)
     const turns = (await $.state.get(TURNS)).value ?? {}
-    // The row's duration matches the turn.complete one; allow a little drift.
-    const key = Object.keys(turns).find(k => Math.abs(Number(k) - e.props.durationMs) <= 1500)
+    // The row's duration matches the turn.complete one; allow a little drift, and take the
+    // closest so turns of similar length don't borrow each other's summary.
+    // ponytail: duration is the only link the engine gives this row; key by turn if it ever exposes one.
+    const off = (k: string) => Math.abs(Number(k) - e.props.durationMs)
+    const key = Object.keys(turns).filter(k => off(k) <= 1500).sort((a, b) => off(a) - off(b))[0]
     const t = key ? turns[key] : undefined
     if (t && (await isFolded($, t.endMs))) { const { Box: Bx } = $.ui.resolve(e); return <Bx /> }
     const bits = ['   · ' + e.props.word + ' ' + fmtDuration(e.props.durationMs)]
