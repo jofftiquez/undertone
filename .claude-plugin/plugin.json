@@ -373,6 +373,12 @@
         "box",
         "progress"
       ]
+    },
+    "diagramHints": {
+      "type": "boolean",
+      "title": "Tell Claude about pictures",
+      "description": "A short note only the model reads, on each prompt you type, saying this terminal draws mermaid flowcharts and charts, figures, task lists and alerts (about 130 tokens)",
+      "default": true
     }
   }
 }

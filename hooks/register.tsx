@@ -911,7 +911,7 @@ function layoutTable(t: Table, room: number, style: TableStyle): Out[] {
 }
 
 // Splits a reply into markdown runs, fenced code blocks and quotes, each copyable on its own.
-type Part = { kind: 'md' | 'code' | 'quote' | 'table' | 'heading' | 'rule' | 'list'; md: string; copy: string; level?: number; lang?: string }
+type Part = { kind: 'md' | 'code' | 'quote' | 'table' | 'heading' | 'rule' | 'list'; md: string; copy: string; level?: number; lang?: string; open?: boolean }
 // ---------- Rich text ----------
 // undertone draws a reply's blocks itself: headings, lists and task lists, quotes and GitHub
 // alerts, code under a header, rules. Inline text still goes through Claude Code's Markdown, so
@@ -945,6 +945,108 @@ function listItems(md: string): Item[] {
   for (const it of items) it.depth = levels.indexOf(it.depth)
   return items
 }
+// ---------- Pictures ----------
+// ```figure: text drawn as written, with colour roles {accent:…} {warn:…} {ok:…} {note:…}
+// {dim:…} {strong:…}. A line that is too wide, holds a tab, or has broken role markup leaves the
+// figure as code, with a dim note saying why.
+const ROLE = /\{(accent|warn|ok|note|dim|strong):([^{}]*)\}/g
+type Seg2 = { text: string; role?: string }
+function figureOf(src: string, room: number): { lines: Seg2[][] } | { error: string } {
+  const lines: Seg2[][] = []
+  const rows = src.replace(/\n+$/, '').split('\n')
+  if (rows.length > 80) return { error: 'figure: more than 80 lines' }
+  for (const [n, row] of rows.entries()) {
+    if (row.includes('\t')) return { error: `figure line ${n + 1}: a tab; use spaces` }
+    const segs: Seg2[] = []
+    let last = 0
+    for (const m of row.matchAll(ROLE)) {
+      if (m.index! > last) segs.push({ text: row.slice(last, m.index) })
+      segs.push({ text: m[2]!, role: m[1]! })
+      last = m.index! + m[0].length
+    }
+    if (last < row.length) segs.push({ text: row.slice(last) })
+    const rest = segs.filter(sg => !sg.role).map(sg => sg.text).join('')
+    if (/\{[a-z]+:/i.test(rest)) return { error: `figure line ${n + 1}: role markup is misspelled, nested or left open` }
+    if (strWidth(segs.map(sg => sg.text).join('')) > room) return { error: `figure line ${n + 1}: wider than the bubble` }
+    lines.push(segs)
+  }
+  return { lines }
+}
+
+// Charts from mermaid: xychart-beta (bar and line series) and pie, as horizontal bars measured
+// in eighths of a cell, so close values still draw apart.
+const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+const barOf = (cells: number) => { const full = Math.floor(cells), rem = Math.round((cells - full) * 8); return '█'.repeat(full) + (rem === 8 ? '█' : EIGHTHS[rem]!) }
+const SERIES_INKS = ['suggestion', 'warning', 'success', 'permission', 'planMode', 'autoAccept']
+const unquote = (x: string) => x.trim().replace(/^"(.*)"$/, '$1')
+const listOf = (inner: string) => [...inner.matchAll(/"([^"]*)"|([^,]+)/g)].map(m => (m[1] ?? m[2]!).trim()).filter(Boolean)
+type Chart = { title?: string; rows: { label: string; values: number[] }[]; kinds: ('bar' | 'line')[]; pie?: boolean }
+function chartOf(src: string): Chart | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  const head = lines[0] ?? ''
+  if (/^pie\b/.test(head)) {
+    const title = /\btitle\s+(.+)$/.exec(head)?.[1] ?? lines.find(l => l.startsWith('title '))?.slice(6)
+    const rows = lines.slice(1).map(l => /^"([^"]+)"\s*:\s*(-?[\d.]+)$/.exec(l)).filter(Boolean).map(m => ({ label: m![1]!, values: [Number(m![2])] }))
+    return rows.length ? { title: title && unquote(title), rows: rows.sort((a, b) => b.values[0]! - a.values[0]!), kinds: ['bar'], pie: true } : undefined
+  }
+  if (!/^xychart(-beta)?\b/.test(head)) return undefined
+  let title: string | undefined
+  let labels: string[] = []
+  const series: { kind: 'bar' | 'line'; values: number[] }[] = []
+  for (const l of lines.slice(1)) {
+    const t = /^title\s+(.+)$/.exec(l); if (t) { title = unquote(t[1]!); continue }
+    const x = /^x-axis\b.*\[(.*)\]\s*$/.exec(l); if (x) { labels = listOf(x[1]!); continue }
+    const s2 = /^(bar|line)\s*\[(.*)\]\s*$/.exec(l); if (s2) { series.push({ kind: s2[1] as 'bar' | 'line', values: listOf(s2[2]!).map(Number) }); continue }
+  }
+  if (!series.length || series.some(sr => sr.values.some(v => !Number.isFinite(v)))) return undefined
+  const n = Math.max(...series.map(sr => sr.values.length))
+  return { title, kinds: series.map(sr => sr.kind), rows: Array.from({ length: n }, (_, k) => ({ label: labels[k] ?? String(k + 1), values: series.map(sr => sr.values[k] ?? 0) })) }
+}
+const fmtNum = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(Math.abs(v) < 10 ? 2 : 1).replace(/\.?0+$/, ''))
+
+// Flowcharts (graph / flowchart): a straight chain draws as boxes and arrows; anything else as a
+// tree from its roots, with edge labels, and ↺ where it loops back to a node already drawn.
+type Flow = { dir: 'LR' | 'TD'; order: string[]; label: Map<string, string>; out: Map<string, { to: string; text?: string }[]> }
+function flowOf(src: string): Flow | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  const head = /^(graph|flowchart)\s*(LR|RL|TD|TB|BT)?\b/.exec(lines[0] ?? '')
+  if (!head) return undefined
+  const flow: Flow = { dir: head[2] === 'LR' || head[2] === 'RL' ? 'LR' : 'TD', order: [], label: new Map(), out: new Map() }
+  const NODE = /^([A-Za-z0-9_]+)\s*(?:\[\[(.*?)\]\]|\[\((.*?)\)\]|\(\((.*?)\)\)|\[(.*?)\]|\((.*?)\)|\{(.*?)\}|>(.*?)\])?$/
+  const node = (tok: string) => {
+    const m = NODE.exec(tok.trim())
+    if (!m) return undefined
+    const id = m[1]!
+    const text = m.slice(2).find(x => x !== undefined)
+    if (!flow.label.has(id)) { flow.order.push(id); flow.label.set(id, id) }
+    if (text !== undefined) flow.label.set(id, unquote(text) || id)
+    return id
+  }
+  for (const raw of lines.slice(1)) {
+    if (/^(subgraph|end|classDef|class|style|linkStyle|click)\b/.test(raw)) { if (/^subgraph\b/.test(raw)) return undefined; continue }
+    const line = raw.replace(/;$/, '').replace(/--\s+([^->|]+?)\s+-->/g, '-->|$1|').replace(/==\s+([^=>|]+?)\s+==>/g, '==>|$1|')
+    const parts = line.split(/\s*(?:-->|---|-\.->|==>|--x|--o)\s*/)
+    const ops = [...line.matchAll(/(?:-->|---|-\.->|==>|--x|--o)\s*(\|[^|]*\|)?/g)].map(m => (m[1] ? m[1].slice(1, -1).trim() : undefined))
+    let prev: string | undefined
+    for (const [k, part] of parts.entries()) {
+      const tok = k > 0 && ops[k - 1] !== undefined ? part.replace(/^\|[^|]*\|\s*/, '') : part
+      const id = node(tok)
+      if (id === undefined) return undefined
+      if (prev !== undefined) { const list = flow.out.get(prev) ?? []; list.push({ to: id, text: ops[k - 1] }); flow.out.set(prev, list) }
+      prev = id
+    }
+  }
+  return flow.order.length ? flow : undefined
+}
+
+// What the note on your prompts tells Claude (about 130 tokens).
+const PICTURE_HINT = [
+  'This terminal draws, inside your replies: GitHub-flavoured markdown (headings, nested and task lists, > [!NOTE]/[!TIP]/[!WARNING] alerts);',
+  '```mermaid flowcharts (graph LR or TD, plain nodes and edges, no subgraphs), xychart-beta bar and line charts, and pie charts;',
+  'and ```figure blocks, drawn exactly as written, where {accent:…} {warn:…} {ok:…} {note:…} {dim:…} {strong:…} colour a run',
+  '(one-column glyphs only, at most 74 columns). Use a picture when it explains better than prose; keep short answers plain.',
+].join(' ')
+
 // One rich block, or undefined to leave the part to the drawing it had before.
 function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button, Markdown, Code } = ui
@@ -1004,6 +1106,10 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     }
     return withCopy(<Box borderStyle="quote" borderColor={th.claude.border} paddingLeft={1}><Markdown text={part.copy} /></Box>, '[ copy quote ]', 'quote', true)
   }
+  if (part.kind === 'code' && !part.open && (part.lang === 'figure' || part.lang === 'mermaid')) {
+    const picture = drawPicture($, ui, part, i, th, room, hov, scope)
+    if (picture) return picture
+  }
   if (part.kind === 'code') {
     const copy = <Button key={'copy-' + i} plain dimColor label="[ copy code ]" onPress={p => copyText($, part.copy, 'code', p.surface)} />
     return (
@@ -1017,6 +1123,131 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     )
   }
   return undefined
+}
+
+// A figure, chart or flowchart, with [ copy source ] and [ copy art ]; undefined leaves it code.
+function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
+  const { Box, Text, Button } = ui
+  const accent = readableOn(th.claude.fill, th.claude.border)
+  const roleInk: Record<string, { color?: string; dimColor?: true; bold?: true }> = {
+    accent: { color: accent }, warn: { color: 'error' }, ok: { color: 'success' }, note: { color: 'warning' },
+    dim: { dimColor: true }, strong: { bold: true, color: th.claude.label },
+  }
+  let rows: Seg2[][] | undefined
+  let note = ''
+  if (part.lang === 'figure') {
+    const fig = figureOf(part.copy, room)
+    if ('error' in fig) note = fig.error
+    else rows = fig.lines
+  } else {
+    const chart = chartOf(part.copy)
+    const flow = chart ? undefined : flowOf(part.copy)
+    if (chart) rows = chartRows(chart, room)
+    else if (flow) rows = flowRows(flow, room)
+    else return undefined // a mermaid kind undertone does not draw: Claude Code's code block
+  }
+  if (!rows) {
+    return (
+      <Box flexDirection="column">
+        <Text dimColor>{note}</Text>
+        {richPart($, ui, { ...part, lang: part.lang, open: true }, i, th, room, hov, scope)}
+      </Box>
+    )
+  }
+  const art = rows.map(r => r.map(sg => sg.text).join('').trimEnd()).join('\n')
+  const copy = (
+    <Box columnGap={1}>
+      <Button key={'src-' + i} plain dimColor label="[ copy source ]" onPress={p => copyText($, part.copy, 'source', p.surface)} />
+      <Button key={'art-' + i} plain dimColor label="[ copy art ]" onPress={p => copyText($, art, 'art', p.surface)} />
+    </Box>
+  )
+  const body = (
+    <Box flexDirection="column" marginY={1}>
+      {rows.map(r => <Text>{r.map(sg => <Text {...(!sg.role ? { color: th.claude.text } : sg.role.startsWith('ink:') ? { color: sg.role.slice(4) } : roleInk[sg.role] ?? {})}>{sg.text}</Text>)}</Text>)}
+    </Box>
+  )
+  return hov
+    ? <Box flexDirection="column">{body}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box>
+    : <Box flexDirection="column"><Box justifyContent="flex-end">{copy}</Box>{body}</Box>
+}
+function chartRows(chart: Chart, room: number): Seg2[][] {
+  const out: Seg2[][] = []
+  if (chart.title) out.push([{ text: chart.title, role: 'strong' }])
+  const total = chart.pie ? chart.rows.reduce((a, r) => a + r.values[0]!, 0) || 1 : 0
+  const valueText = (v: number) => (chart.pie ? `${fmtNum(v)} · ${Math.round((v / total) * 100)}%` : fmtNum(v))
+  const labelW = Math.min(20, Math.max(...chart.rows.map(r => strWidth(r.label))))
+  const valueW = Math.max(...chart.rows.flatMap(r => r.values.map(v => valueText(v).length)))
+  const max = Math.max(...chart.rows.flatMap(r => r.values), 0) || 1
+  const barRoom = Math.max(4, room - labelW - valueW - 3)
+  const multi = chart.kinds.length > 1
+  const top = Math.max(...chart.rows.map(r => r.values[0]!))
+  chart.rows.forEach((r, k) => r.values.forEach((v, sIx) => {
+    const cells = Math.max(0, (v / max) * barRoom)
+    const label = sIx === 0 ? (strWidth(r.label) > labelW ? clip(r.label, labelW) : r.label + ' '.repeat(labelW - strWidth(r.label))) : ' '.repeat(labelW)
+    const ink = multi ? SERIES_INKS[sIx % SERIES_INKS.length]! : !chart.pie && v === top ? 'strong' : chart.pie ? SERIES_INKS[k % SERIES_INKS.length]! : 'accent'
+    const mark = chart.kinds[sIx] === 'line' ? '─'.repeat(Math.max(0, Math.round(cells) - 1)) + '●' : barOf(cells)
+    out.push([{ text: label + ' ' }, { text: mark, role: ink in { strong: 1, accent: 1 } ? ink : 'ink:' + ink }, { text: ' ' + valueText(v), role: 'note' }])
+  }))
+  if (multi) out.push(chart.kinds.map((kind, sIx) => ({ text: `${kind === 'line' ? '●' : '█'} series ${sIx + 1}   `, role: 'ink:' + SERIES_INKS[sIx % SERIES_INKS.length] })))
+  return out
+}
+function flowRows(flow: Flow, room: number): Seg2[][] | undefined {
+  const ins = new Map<string, number>()
+  for (const list of flow.out.values()) for (const ed of list) ins.set(ed.to, (ins.get(ed.to) ?? 0) + 1)
+  const inkOf = (id: string) => 'ink:' + SERIES_INKS[flow.order.indexOf(id) % SERIES_INKS.length]
+  const roots = flow.order.filter(id => !ins.get(id))
+  const edges = [...flow.out.values()].reduce((a, l) => a + l.length, 0)
+  const chain = roots.length === 1 && edges === flow.order.length - 1 && flow.order.every(id => (flow.out.get(id)?.length ?? 0) <= 1 && (ins.get(id) ?? 0) <= 1)
+  if (chain) {
+    const seq: string[] = [roots[0]!]
+    while (flow.out.get(seq.at(-1)!)?.[0]) seq.push(flow.out.get(seq.at(-1)!)![0]!.to)
+    const boxes = seq.map(id => flow.label.get(id)!)
+    const arrows = seq.slice(1).map((id, k) => flow.out.get(seq[k]!)![0]!.text)
+    const arrowOf = (t?: string) => (t ? `─ ${t} ─▶` : '──▶')
+    const cells = (x: string) => strWidth(x.replace(/▶/g, '>')) // ▶ draws one column wide
+    const width = boxes.reduce((a, b) => a + strWidth(b) + 4, 0) + arrows.reduce((a, t) => a + cells(arrowOf(t)) + 2, 0)
+    if (flow.dir === 'LR' && width <= room) {
+      const top: Seg2[] = [], mid: Seg2[] = [], bot: Seg2[] = []
+      boxes.forEach((b, k) => {
+        const w = strWidth(b) + 2
+        top.push({ text: '╭' + '─'.repeat(w) + '╮', role: inkOf(seq[k]!) })
+        mid.push({ text: '│ ', role: inkOf(seq[k]!) }, { text: b, role: 'strong' }, { text: ' │', role: inkOf(seq[k]!) })
+        bot.push({ text: '╰' + '─'.repeat(w) + '╯', role: inkOf(seq[k]!) })
+        if (k < arrows.length) {
+          const a = ' ' + arrowOf(arrows[k]) + ' '
+          top.push({ text: ' '.repeat(cells(a)) }); mid.push({ text: a, role: 'dim' }); bot.push({ text: ' '.repeat(cells(a)) })
+        }
+      })
+      return [top, mid, bot]
+    }
+    const out: Seg2[][] = []
+    boxes.forEach((b, k) => {
+      const w = strWidth(b) + 2
+      if (w + 2 > room) return
+      out.push([{ text: '╭' + '─'.repeat(w) + '╮', role: inkOf(seq[k]!) }])
+      out.push([{ text: '│ ', role: inkOf(seq[k]!) }, { text: b, role: 'strong' }, { text: ' │', role: inkOf(seq[k]!) }])
+      out.push([{ text: '╰' + '─'.repeat(w) + '╯', role: inkOf(seq[k]!) }])
+      if (k < arrows.length) { out.push([{ text: '  │' + (arrows[k] ? ' ' + arrows[k] : ''), role: 'dim' }]); out.push([{ text: '  ▼', role: 'dim' }]) }
+    })
+    return out.length ? out : undefined
+  }
+  // a tree from each root; a node met again is named with ↺ and not expanded twice
+  const out: Seg2[][] = []
+  const seen = new Set<string>()
+  const walk = (id: string, prefix: string, lead: Seg2[]) => {
+    const again = seen.has(id)
+    out.push([...lead, { text: '▢ ', role: inkOf(id) }, { text: flow.label.get(id)!, role: again ? 'dim' : 'strong' }, ...(again ? [{ text: ' ↺', role: 'dim' }] : [])])
+    if (again) return
+    seen.add(id)
+    const kids = flow.out.get(id) ?? []
+    kids.forEach((ed, k) => {
+      const last = k === kids.length - 1
+      walk(ed.to, prefix + (last ? '    ' : '│   '), [{ text: prefix + (last ? '└─' : '├─'), role: 'dim' }, { text: ed.text ? ` ${ed.text} ` : '', role: 'note' }, { text: '─▶ ', role: 'dim' }])
+    })
+  }
+  for (const r of roots.length ? roots : [flow.order[0]!]) walk(r, '', [])
+  for (const id of flow.order) if (!seen.has(id)) walk(id, '', [])
+  return out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? undefined : out
 }
 
 function splitReply(text: string, rich = false): Part[] {
@@ -1033,7 +1264,7 @@ function splitReply(text: string, rich = false): Part[] {
       flush()
       const block = lines.slice(i, end + 1)
       const lang = line.trim().slice(fence[1]!.length).trim().split(/\s+/)[0] ?? ''
-      parts.push({ kind: 'code', md: block.join('\n'), copy: lines.slice(i + 1, close === -1 ? lines.length : end).join('\n'), lang })
+      parts.push({ kind: 'code', md: block.join('\n'), copy: lines.slice(i + 1, close === -1 ? lines.length : end).join('\n'), lang, open: close === -1 })
       i = end
     } else if (line.includes('|') && TABLE_RULE.test(lines[i + 1] ?? '')) {
       // header row + alignment row, then every following row that has a pipe
@@ -1556,6 +1787,8 @@ export const register: Register = (on, options) => {
     tally = { tools: 0, failed: 0, agents: 0, agentTools: 0, usdStart: (await $.session.usage().catch(() => undefined))?.cost?.usd ?? null }
     await $.state.set(TURN, tally)
     await $.state.set(TURN_TOOLS, 0)
+    // A note only the model reads, so Claude reaches for a picture when one would help.
+    if (!e.command && richText() && opt<unknown>('diagramHints', true) !== false) return next({ ...e, context: [...(e.context ?? []), PICTURE_HINT] })
     return next(e)
   })
   on('turn.complete', async ($, e, next) => {
@@ -1764,7 +1997,10 @@ export const register: Register = (on, options) => {
     const th = await themeOf($)
     if (await isFolded($, await msOf($, e.requestId, text))) return <Box />
     const t = first ? await timeOf($, e.requestId, text, th.preciseTime) : ''
-    const w = bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ reply ] [ react ] [ copy ]`, e.viewport?.columns, th.claudeShare, chrome(th.claude, th.padding))
+    // A picture's source is short and its drawing wide: a reply with one takes its whole share.
+    const w = /^\s*(`{3,}|~{3,})\s*(mermaid|figure)\b/m.test(text) && richText()
+      ? Math.max(12, Math.floor((e.viewport?.columns ?? 80) * th.claudeShare))
+      : bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ reply ] [ react ] [ copy ]`, e.viewport?.columns, th.claudeShare, chrome(th.claude, th.padding))
     const FOLD_LINES = th.foldLines
     const lines = text.split('\n')
     const foldId = `${e.requestId ?? ''}:${text.length}`
@@ -1773,8 +2009,14 @@ export const register: Register = (on, options) => {
     let shown = text
     if (isLong && !isOpen) {
       const head = lines.slice(0, FOLD_LINES)
-      // Close a code fence the cut left open, so the rest still renders as markdown.
-      if (head.filter(l => /^\s*(`{3,}|~{3,})/.test(l)).length % 2 === 1) head.push('```')
+      // A cut inside a fenced block: a picture can't draw half its source, so a figure or mermaid
+      // block folds whole; plain code keeps its first lines, closed.
+      const fences = head.map((l, k) => (/^\s*(`{3,}|~{3,})/.test(l) ? k : -1)).filter(k => k >= 0)
+      if (fences.length % 2 === 1) {
+        const open = fences.at(-1)!
+        if (/^\s*(`{3,}|~{3,})\s*(figure|mermaid)\b/.test(head[open]!) && open > 0) head.splice(open)
+        else head.push('```')
+      }
       shown = head.join('\n')
     }
     const rich = richText()

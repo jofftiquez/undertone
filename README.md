@@ -91,6 +91,16 @@ Claude's replies draw block by block, in the theme's colours:
 - **Rules** draw across the bubble; lists and quotes get `[ copy list ]` and `[ copy quote ]`.
 - Inline text (bold, italic, code, links) is Claude Code's own, so links stay clickable. *Rich text* off gives Claude Code's drawing back.
 
+### Pictures
+
+When a picture explains better than prose, Claude can draw one, and undertone draws it in the bubble:
+
+- **Charts** from ` ```mermaid ` blocks: `xychart-beta` bar and line series as bars measured to an eighth of a cell, the tallest one highlighted, and `pie` charts as share bars, largest first.
+- **Flowcharts** (`graph LR` / `TD`): a straight chain as boxes joined by arrows, with edge labels; branches and loops as a tree, `↺` where it loops back.
+- **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run. A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
+- `[ copy source ]` and `[ copy art ]` on each. Other mermaid kinds, and a block still streaming, stay code.
+- So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
+
 ### Like a chat app
 
 - **Reactions**: `[ react ]` on any bubble, then 👍 💖 😂 🤯. They show under the bubble, survive restarts and go into exports; press one again to take it back.
@@ -192,6 +202,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Rich text | on | off = Claude Code's own Markdown |
 | Heading style | `banner` | `bold`, `underline` |
 | Task list style | `brackets` | `ticks`, `box`, `progress` |
+| Tell Claude about pictures | on | the note on your prompts |
 | Pictures inline | on | |
 | Desktop app wallpaper | `off` | `theme` |
 | System notification for long turns | on, after `30` s | |
@@ -217,7 +228,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 235 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 246 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
