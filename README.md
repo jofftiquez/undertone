@@ -131,16 +131,21 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
     <td><img src="docs/figure.png" alt="A figure: a retry racing a timeout on a time axis, in colour"></td>
   </tr>
   <tr>
+    <td><img src="docs/state.png" alt="A state diagram: a start dot, Draft, Review with submit, changes and approve edges, Merged, an end dot"></td>
+    <td><img src="docs/class.png" alt="A class diagram: Animal, Duck and Fish as boxes with their members, and Duck and Fish inherit Animal"></td>
+  </tr>
+  <tr>
     <td colspan="2"><img src="docs/gantt.png" alt="A gantt chart: tasks as bars on a date axis, done in green, active in amber, a milestone diamond at the end"></td>
   </tr>
 </table>
 
 - **Charts** from ` ```mermaid ` blocks: `xychart-beta` bar and line series as bars measured to an eighth of a cell, the tallest one highlighted, and `pie` charts as share bars, largest first.
 - **Flowcharts** (`graph LR` / `TD`): a straight chain as boxes joined by arrows, with edge labels; branches and loops as a tree, `↺` where it loops back.
+- **State diagrams** draw like flowcharts, `●` where they start and `◉` where they end; **class and ER diagrams** as a box per class or entity with its members, and the relations under them in words (`Duck ──▷ Animal  inherits`, `CUSTOMER ──▶ ORDER  places (one to many)`).
 - **Gantt charts**: a bar per task on a shared date axis, with sections; done tasks green, active amber, critical red, milestones `◆` (`YYYY-MM-DD` dates; durations in `d`, `h`, `w`, or `after <task>`).
 - **Sequence diagrams**: a box per participant over its lifeline, each message an arrow with its text above, replies dashed, notes and `loop`/`alt` labels as dim lines.
 - **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run. A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
-- `[ source ]`, `[ art ]` and `[ png ]` on each. Other mermaid kinds (class, state, ER), and a block still streaming, stay code.
+- `[ source ]`, `[ art ]` and `[ png ]` on each. Other mermaid kinds (mindmaps, journeys, git graphs), and a block still streaming, stay code.
 - So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
 
 ### Math, footnotes and copying
@@ -286,7 +291,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 275 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 278 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
