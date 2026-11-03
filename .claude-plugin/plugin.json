@@ -293,6 +293,30 @@
         "box",
         "minimal"
       ]
+    },
+    "typingBubble": {
+      "type": "boolean",
+      "title": "Typing bubble while Claude works",
+      "description": "A small Claude bubble (\"Claude is typing ● · ·\") around the working line; off = the plain line",
+      "default": true
+    },
+    "quickReplies": {
+      "type": "string",
+      "title": "Quick replies",
+      "description": "Buttons above the prompt once Claude has answered, separated by |; one press sends it as you. off = none",
+      "default": "Go ahead|Explain more|Shorter, please"
+    },
+    "dayNight": {
+      "type": "boolean",
+      "title": "Light by day, dark by night",
+      "description": "Themes with a light and dark version switch by the local hour: messenger, catppuccin, gruvbox, solarized, github, rose-pine",
+      "default": false
+    },
+    "dayHours": {
+      "type": "string",
+      "title": "Daytime hours",
+      "description": "When the light version shows, as start-end hours (24h), e.g. 7-19",
+      "default": "7-19"
     }
   }
 }

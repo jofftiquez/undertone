@@ -14,6 +14,9 @@ declare module 'claude-code' {
       enabled: boolean | null
       turn: { tools: number; failed: number; usdStart: number | null } | null
       setup: { step: number; draft: Record<string, string> } | null
+      reactions: Record<string, string[]> | null
+      reactOpen: StateFamily<boolean>
+      lastPrompt: { key: string; read: boolean } | null
     }
   }
 }

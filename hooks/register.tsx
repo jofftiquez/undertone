@@ -21,6 +21,10 @@ const FILE_PANE = 'undertone-file'
 const ENABLED = { plugin: 'undertone', key: 'enabled' } as const
 const SETUP = { plugin: 'undertone', key: 'setup' } as const
 const SETUP_PANE = 'undertone-setup'
+const REACTIONS = { plugin: 'undertone', key: 'reactions' } as const
+const REACT_OPEN = { plugin: 'undertone', key: 'reactOpen' } as const
+// Your latest prompt and whether Claude has started on it (read receipts, quick replies).
+const LAST_PROMPT = { plugin: 'undertone', key: 'lastPrompt' } as const
 
 // ---------- Theme system ----------
 // A theme is a full "look": per side (you / Claude) a bubble shape, border, label, fill,
@@ -88,6 +92,21 @@ const SURFACE: Record<string, { surface: string; text: string }> = {}
 for (const [name, desc, you, claude, surface, text, shape = 'round', divider = '─'] of PALETTES) {
   THEMES[name] = look(desc, side(shape, you, 'You'), side(shape, claude, 'Claude'), { chip: you, chipHover: claude, divider })
   SURFACE[name] = { surface, text }
+}
+
+// Light and dark versions of one look, for "Light by day, dark by night".
+const DAY_NIGHT: [day: string, night: string][] = [
+  ['messenger-light', 'messenger'], ['catppuccin-latte', 'catppuccin-mocha'], ['gruvbox-light', 'gruvbox'],
+  ['solarized-light', 'solarized-dark'], ['github-light', 'github-dark'], ['rose-pine-dawn', 'rose-pine'],
+]
+// The pair's day or night side for the local hour; hours "7-19" = day from 07:00 to 18:59 (and "20-6" wraps).
+function dayOrNight(name: string, nowMs: number, offMin: number, hours: string) {
+  const pair = DAY_NIGHT.find(p => p.includes(name))
+  if (!pair) return name
+  const m = /^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$/.exec(hours)
+  const [a, b] = m ? [Number(m[1]) % 24, Number(m[2]) % 24] : [7, 19]
+  const h = new Date(nowMs + offMin * 60_000).getUTCHours()
+  return (a <= b ? h >= a && h < b : h >= a || h < b) ? pair[0] : pair[1]
 }
 
 type Theme = Look & { tableStyle: TableStyle; name: string; userShare: number; claudeShare: number; foldLines: number; gapMs: number; preciseTime: boolean; foldTurns: number }
@@ -162,7 +181,8 @@ async function themeOf($: EngineInterface, d?: Record<string, unknown>): Promise
   const o = mkOpt(d)
   let picked = (d?.theme as string | undefined) ?? (await $.state.get(THEME_NAME)).value ?? o('theme', 'default')
   if (picked === 'random') { const dark = Object.keys(THEMES).filter(n => !/light|latte|dawn|mono|terminal/.test(n)); picked = (randomTheme ??= dark[Math.floor(Math.random() * dark.length)]!) }
-  const name = picked in THEMES ? picked : 'default'
+  let name = picked in THEMES ? picked : 'default'
+  if (o<unknown>('dayNight', false) === true && offsetMin !== undefined) name = dayOrNight(name, await $.clock.now(), offsetMin, String(o('dayHours', '7-19')))
   const base = lookOf(name, o)
   const pct = (k: string, dflt: number) => Math.min(100, Math.max(20, Number(o(k, dflt)))) / 100
   const user = overrideSide(base.user, 'user', o)
@@ -410,6 +430,8 @@ async function switchSession($: EngineInterface, sid: string) {
   await $.state.set(PINS, ((await $.store.get('pins:' + sid).catch(() => undefined)) as Record<string, Pin> | undefined) ?? null)
   await $.state.set(TURNS, null)
   await $.state.set(SHOW_OLD, null)
+  await $.state.set(REACTIONS, ((await $.store.get('reactions:' + sid).catch(() => undefined)) as Record<string, string[]> | undefined) ?? null)
+  await $.state.set(LAST_PROMPT, null)
 }
 async function indexTranscriptInner($: EngineInterface) {
   const sid = await $.session.id()
@@ -959,6 +981,56 @@ async function togglePin($: EngineInterface, key: string, pin: Pin) {
   await $.store.set('pins:' + (await $.session.id()), pins) // survives restart / resume
   $.ui.toast(pins[key] ? 'Pinned' : 'Unpinned')
 }
+// ---------- Reactions ----------
+// 💖 rather than ❤️: the heart's variation selector makes terminals misjudge its width.
+const REACTION_SET = ['👍', '💖', '😂', '🤯']
+async function toggleReaction($: EngineInterface, key: string, emoji: string) {
+  const all = { ...((await $.state.get(REACTIONS)).value ?? {}) }
+  const mine = all[key] ?? []
+  const next = mine.includes(emoji) ? mine.filter(x => x !== emoji) : [...mine, emoji]
+  if (next.length) all[key] = next
+  else delete all[key]
+  await $.state.set(REACTIONS, all)
+  await $.state.set({ ...REACT_OPEN, id: key }, false)
+  await $.store.set('reactions:' + (await $.session.id()), all).catch(() => {}) // survives restart / resume
+}
+const reactButton = ($: EngineInterface, Button: any, key: string) =>
+  <Button key={'react-' + key} plain dimColor label="[ react ]" onPress={async () => $.state.set({ ...REACT_OPEN, id: key }, !((await $.state.get({ ...REACT_OPEN, id: key })).value ?? false))} />
+// The bubble's reactions (press one to take it back), and the picker while [ react ] is open.
+async function reactionRow($: EngineInterface, ui: { Box: any; Button: any }, key: string) {
+  const { Box, Button } = ui
+  const mine = ((await $.state.get(REACTIONS)).value ?? {})[key] ?? []
+  const open = (await $.state.get({ ...REACT_OPEN, id: key })).value ?? false
+  if (!mine.length && !open) return null
+  return (
+    <Box columnGap={1} flexWrap="wrap">
+      {mine.map(r => <Button key={'had-' + r + key} plain label={r} onPress={() => toggleReaction($, key, r)} />)}
+      {open && REACTION_SET.filter(r => !mine.includes(r)).map(r => <Button key={'pick-' + r + key} plain dimColor label={r} onPress={() => toggleReaction($, key, r)} />)}
+      {open && <Button key={'pick-x' + key} plain dimColor label="×" onPress={() => $.state.set({ ...REACT_OPEN, id: key }, false)} />}
+    </Box>
+  )
+}
+
+// ---------- Quote-reply ----------
+// [ reply ] puts the text you selected in this reply (else its first lines) at the top of the
+// prompt as a > quote, above whatever you had typed.
+async function quoteReply($: EngineInterface, requestId: string | undefined, text: string) {
+  const sel = await $.ui.selection().catch(() => undefined)
+  const src = sel && sel.requestId === requestId && sel.text.trim() ? sel.text.trim() : text.trim().split('\n').slice(0, 6).join('\n')
+  const quote = src.split('\n').map(l => ('> ' + l).trimEnd()).join('\n') + '\n\n'
+  const box = await $.prompt.read().catch(() => ({ text: '' }))
+  const r = await $.prompt.fill({ text: quote + box.text }).catch(() => undefined)
+  if (!r?.isFilled) $.ui.toast('Could not fill the prompt')
+}
+
+// ---------- Read receipts ----------
+// A prompt you sent (yours, or a quick reply undertone sent as you) starts unread; Claude's first
+// reply or tool call marks it read.
+const isYours = (o: { kind: string; name?: string; asUser?: true } | undefined) => o?.kind === 'composer' || (o?.kind === 'plugin' && o.name === 'undertone' && o.asUser === true)
+async function markRead($: EngineInterface) {
+  const lp = (await $.state.get(LAST_PROMPT)).value
+  if (lp && !lp.read) await $.state.set(LAST_PROMPT, { ...lp, read: true })
+}
 async function sortedPins($: EngineInterface) {
   return Object.values((await $.state.get(PINS)).value ?? {}).sort((a, b) => (a.ms ?? 0) - (b.ms ?? 0))
 }
@@ -1019,6 +1091,8 @@ async function exportChat($: EngineInterface, target: string) {
     if (ms) timed++
     const when = ms && offsetMin !== undefined ? ` · ${fmtPrecise(ms, now, offsetMin)}` : ''
     out.push(`### ${m.role === 'user' ? 'You' : 'Claude'}${when}`, '', text, '')
+    const reacted = ((await $.state.get(REACTIONS)).value ?? {})[textKey(text)]
+    if (reacted?.length) out.push(`<sub>Reactions: ${reacted.join(' ')}</sub>`, '')
     if (m.role === 'assistant' && m.toolUses.length) out.push(`<sub>${m.toolUses.length} tool call(s): ${m.toolUses.map(u => u.tool ?? '').join(', ')}</sub>`, '')
     n++
   }
@@ -1052,6 +1126,8 @@ export const register: Register = (on, options) => {
     const savedPins = ((await $.store.get('pins:' + sid).catch(() => undefined)) as Record<string, Pin> | undefined)
       ?? (await importLegacyPins($, sid).catch(() => undefined))
     if (savedPins) await $.state.set(PINS, savedPins)
+    const savedReactions = (await $.store.get('reactions:' + sid).catch(() => undefined)) as Record<string, string[]> | undefined
+    if (savedReactions) await $.state.set(REACTIONS, savedReactions)
     const savedTheme = await $.store.get('theme').catch(() => undefined)
     if (typeof savedTheme === 'string' && savedTheme in THEMES) await $.state.set(THEME_NAME, savedTheme)
     // UTC offset from the OS: `date +%z` (+0800) on macOS/Linux, Get-Date zzz (+08:00) on Windows.
@@ -1073,6 +1149,7 @@ export const register: Register = (on, options) => {
       if (text.trim()) await $.state.set({ ...STAMPS, id: textKey(text) }, now)
     }
     const stored = await next(e)
+    if (e.door === 'response' && !e.agentId) await markRead($).catch(() => {})
     if (e.door === 'prompt' || e.door === 'response') {
       void indexTranscript($).catch(() => {})
       // ponytail: the transcript file is flushed a moment after the row is stored; 1s covers it.
@@ -1087,7 +1164,8 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     // A new turn starts with what you type; prompts the engine or plugins send mid-turn
     // (a skills listing, a queued notice) must not reset the running counts.
-    if (e.origin?.kind !== 'composer') return next(e)
+    if (!isYours(e.origin)) return next(e)
+    await $.state.set(LAST_PROMPT, { key: textKey(e.text), read: false })
     await $.state.set(TURN, { tools: 0, failed: 0, usdStart: (await $.session.usage().catch(() => undefined))?.cost?.usd ?? null })
     await $.state.set(TURN_TOOLS, 0)
     return next(e)
@@ -1122,6 +1200,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     await $.state.set({ ...STAMPS, id: e.tool_use_id }, await $.clock.now())
     if (e.agentId) return next(e) // count the main loop's calls only
+    await markRead($)
     const cur = (await $.state.get(TURN)).value ?? { tools: 0, failed: 0, usdStart: null }
     await $.state.set(TURN, { ...cur, tools: cur.tools + 1 })
     await $.state.set(TURN_TOOLS, cur.tools + 1)
@@ -1140,7 +1219,7 @@ export const register: Register = (on, options) => {
   // Your prompt: a right-aligned blue bubble. Notifications/teammate rows keep the engine's look.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
-    if (e.props.origin.kind !== 'composer') {
+    if (!isYours(e.props.origin)) {
       if (e.props.isExpanded) return next(e)
       const { Text, Box: B0 } = $.ui.resolve(e)
       if (await isFolded($, await msOf($, e.requestId, e.props.text))) return <B0 />
@@ -1153,7 +1232,7 @@ export const register: Register = (on, options) => {
     // [Image #N] → a button that opens the saved copy in the OS image viewer.
     const saved = (await $.state.get(IMAGES)).value ?? {}
     const imageNos = [...new Set([...e.props.text.matchAll(IMAGE_TOKEN)].map(m => m[1]!))]
-    const w = bubbleWidth(e.props.text, `${sideLabel(th.user)}  ${t}   ☆ `, e.viewport?.columns, th.userShare, chrome(th.user, th.padding))
+    const w = bubbleWidth(e.props.text, `${sideLabel(th.user)}  ${t} ✓✓   ☆ [ react ]`, e.viewport?.columns, th.userShare, chrome(th.user, th.padding))
     const ms = await msOf($, e.requestId, e.props.text)
     const prevs = (await $.state.get(PREV)).value ?? {}
     const prevMs = (e.requestId ? prevs[e.requestId] : undefined) ?? prevs[textKey(e.props.text)]
@@ -1163,6 +1242,11 @@ export const register: Register = (on, options) => {
     const scope = 'p:' + textKey(e.props.text)
     const pinned = await isPinned($, e.props.text)
     const star = await starButton($, Button, 'You', e.props.text, ms)
+    const key = textKey(e.props.text)
+    const reactions = await reactionRow($, { Box, Button }, key)
+    // ✓ sent, ✓✓ once Claude has started on it; only your latest prompt can still be unread.
+    const lp = (await $.state.get(LAST_PROMPT)).value
+    const unread = !!lp && lp.key === key && !lp.read
     // At the fold point: a marker to show / re-fold the earlier turns.
     const cut = (await $.state.get(CUTOFF)).value
     const showOld = (await $.state.get(SHOW_OLD)).value ?? false
@@ -1189,8 +1273,10 @@ export const register: Register = (on, options) => {
             <Text>
               <Text bold color={th.user.label}>{sideLabel(th.user)}</Text>
               {t && <Text {...timeInk(th.user)}>{'  ' + t}</Text>}
+              {unread ? <Text {...timeInk(th.user)}>{' ✓'}</Text> : <Text color={readableOn(th.user.fill, th.claude.border)}>{' ✓✓'}</Text>}
             </Text>
-            {hov && pinned ? star : reveal(Box, hov, scope, 'star-reveal', star)}
+            {hov && pinned && star}
+            {reveal(Box, hov, scope, 'star-reveal', <Box columnGap={1}>{!(hov && pinned) && star}{reactButton($, Button, key)}</Box>)}
           </Box>
           <Text color={th.user.text}>
             {slashParts(e.props.text, new Set((await $.command.list().catch(() => [])).map(c => c.name)))
@@ -1211,6 +1297,7 @@ export const register: Register = (on, options) => {
               })}
             </Box>
           )}
+          {reactions}
         </Box>
       </Box>
       </Box>
@@ -1227,7 +1314,7 @@ export const register: Register = (on, options) => {
     const th = await themeOf($)
     if (await isFolded($, await msOf($, e.requestId, text))) return <Box />
     const t = first ? await timeOf($, e.requestId, text, th.preciseTime) : ''
-    const w = bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ copy ]`, e.viewport?.columns, th.claudeShare, chrome(th.claude, th.padding))
+    const w = bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ reply ] [ react ] [ copy ]`, e.viewport?.columns, th.claudeShare, chrome(th.claude, th.padding))
     const FOLD_LINES = th.foldLines
     const lines = text.split('\n')
     const foldId = `${e.requestId ?? ''}:${text.length}`
@@ -1245,6 +1332,7 @@ export const register: Register = (on, options) => {
     const scope = 'c:' + foldId
     const pinned = await isPinned($, text)
     const star = await starButton($, Button, 'Claude', text, await msOf($, e.requestId, text))
+    const reactions = await reactionRow($, { Box, Button }, textKey(text))
     return (
       <Box marginTop={first ? th.spacing : 0}>
         <Box key="bubble" width={w} {...bubbleBox(th.claude, th.padding)} {...(hov ? { hover: { scope } } : {})}>
@@ -1257,6 +1345,8 @@ export const register: Register = (on, options) => {
             {reveal(Box, hov, scope, 'head-reveal', (
               <Box columnGap={1}>
                 {!(hov && pinned) && star}
+                <Button key="reply" plain dimColor label="[ reply ]" onPress={() => quoteReply($, e.requestId, text)} />
+                {reactButton($, Button, textKey(text))}
                 <Button key="copy-all" plain dimColor label="[ copy ]" onPress={p => copyText($, text, 'message', p.surface)} />
               </Box>
             ))}
@@ -1304,6 +1394,7 @@ export const register: Register = (on, options) => {
           {isLong && (
             <Button key="fold" plain dimColor label={isOpen ? '[ less ]' : `[ more · ${lines.length - FOLD_LINES} lines ]`} onPress={() => $.state.set({ ...MORE, id: foldId }, !isOpen)} />
           )}
+          {reactions}
         </Box>
       </Box>
     )
@@ -1442,12 +1533,48 @@ export const register: Register = (on, options) => {
     }
   })
 
-  // Live spinner: "Sauteing · 3 tools" while the turn runs.
+  // While Claude works: a small Claude bubble, "Claude is typing ● · ·", over the engine's own
+  // spinner line ("Sauteing · 3 tools…", with its time and tokens). The dots move because the
+  // row reads the clock, which redraws it on the clock's tick.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (!(await isOn($))) return next(e) // switched off: Claude Code's own look
     const n = (await $.state.get(TURN_TOOLS)).value ?? 0
-    if (!n) return next(e)
-    return next({ ...e, props: { ...e.props, message: `${e.props.message ?? e.props.word} · ${n} tool${n === 1 ? '' : 's'}` } })
+    const line = await next(n ? { ...e, props: { ...e.props, message: `${e.props.message ?? e.props.word} · ${n} tool${n === 1 ? '' : 's'}` } } : e)
+    if (e.surface !== 'terminal' || opt<unknown>('typingBubble', true) === false) return line
+    const { Box, Text } = $.ui.resolve(e)
+    const th = await themeOf($)
+    const verb = e.props.mode === 'thinking' ? 'is thinking' : e.props.mode === 'tool-use' || e.props.mode === 'tool-input' ? 'is working' : 'is typing'
+    const dots = ['●  ·  ·', '·  ●  ·', '·  ·  ●'][Math.floor((await $.clock.now()) / 400) % 3]!
+    const head = `${sideLabel(th.claude)} ${verb}  ${dots}`
+    // The engine refuses its own line under a sized Box, so the bubble holds only the head and
+    // the engine's line (time, tokens) sits right under it.
+    return (
+      <Box flexDirection="column" marginTop={th.spacing}>
+        <Box width={strWidth(head) + chrome(th.claude, th.padding)} {...bubbleBox(th.claude, th.padding)}>
+          <Text>
+            <Text bold color={th.claude.label}>{sideLabel(th.claude)}</Text>
+            <Text {...timeInk(th.claude)}>{' ' + verb + '  '}</Text>
+            <Text color={readableOn(th.claude.fill, th.claude.border)}>{dots}</Text>
+          </Text>
+        </Box>
+        {line}
+      </Box>
+    )
+  })
+
+  // Quick replies above the prompt once Claude has answered: one press sends it as you.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (!(await isOn($)) || e.props.hasSurvey || e.props.isWorking) return next(e)
+    const raw = String(opt('quickReplies', 'Go ahead|Explain more|Shorter, please')).trim()
+    const replies = raw.toLowerCase() === 'off' ? [] : raw.split('|').map(r => r.trim()).filter(Boolean).slice(0, 6)
+    if (!replies.length || !(await $.state.get(LAST_PROMPT)).value?.read) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    return (
+      <Box columnGap={1} flexWrap="wrap">
+        <Text dimColor>Quick reply</Text>
+        {replies.map((r, i) => <Button key={'qr' + i} plain dimColor label={`[ ${r} ]`} onPress={() => $.prompt.submit({ text: r, asUser: true })} />)}
+      </Box>
+    )
   })
 
   // Context meter at the end of the hint line under the prompt.

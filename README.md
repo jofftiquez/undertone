@@ -80,6 +80,15 @@ Two ways to copy a table: `[ copy table ]` gives you the Markdown (for GitHub, N
 `[ copy as cells ]` gives you tab-separated plain text, which Slack, Excel, Google Sheets and Numbers paste as a real
 table.
 
+### Like a chat app
+
+- **Reactions**: `[ react ]` on any bubble, then 👍 💖 😂 🤯. They show under the bubble, survive restarts and go into exports; press one again to take it back.
+- **Quote-reply**: select part of Claude's reply and press `[ reply ]`; your prompt starts with it as a `> quote`. With nothing selected, it quotes the reply's first lines.
+- **Read receipts**: your latest prompt shows `✓` until Claude starts on it, then `✓✓`.
+- **Typing bubble**: while Claude works, a small bubble says `Claude is typing ● · ·` (or *thinking*, or *working*) above Claude Code's own line with its time and tokens.
+- **Quick replies**: after Claude answers, `[ Go ahead ] [ Explain more ] [ Shorter, please ]` sit above the prompt; one press sends it as you. Set your own in `/config` (separated by `|`), or `off`.
+- **Light by day, dark by night**: for themes with both versions (messenger, catppuccin, gruvbox, solarized, github, rose-pine), turn on *Light by day, dark by night* and set the hours (default `7-19`).
+
 ### Small things that add up
 
 - **Slash commands stand out**: a command you mention in a prompt (`try /undertone-theme`) is drawn bold in Claude's colour. Only real commands count, so paths like `/tmp/x` stay plain. (A command you run on its own is drawn by Claude Code, not as a bubble.)
@@ -147,6 +156,9 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Keep last N turns unfolded | `10` | `0` never folds |
 | Fold replies longer than | `15` lines | |
 | Gap divider after | `60` minutes | |
+| Typing bubble | on | off = Claude Code's plain working line |
+| Quick replies | `Go ahead\|Explain more\|Shorter, please` | `off` = none |
+| Light by day, dark by night | off | with *Daytime hours* `7-19` |
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
 
@@ -170,7 +182,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 186 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 196 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code
