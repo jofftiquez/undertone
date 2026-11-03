@@ -391,6 +391,16 @@
       "title": "Colour numbers and paths",
       "description": "In plain paragraphs and list items: numbers, versions, durations and percentages in amber, paths in their own colour; right-to-left text right-aligned. Text with a link stays Claude Code's own, so the link stays clickable",
       "default": true
+    },
+    "diffStyle": {
+      "type": "string",
+      "title": "Diff style",
+      "description": "How an opened edit shows its change: card = in a rounded frame headed by the file and +/- counts; plain = the diff alone",
+      "default": "card",
+      "options": [
+        "card",
+        "plain"
+      ]
     }
   }
 }

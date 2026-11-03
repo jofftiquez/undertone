@@ -62,7 +62,7 @@ test('xychart-beta bars: title, a bar per month, the tallest stands out; [ copy 
   const bars = all.filter(t => /^█/.test(t.text))
   expect(bars.length).toBe(3)
   expect(bars.find(t => t.props.bold)?.text.length).toBeGreaterThan(bars[0].text.length) // Feb, the tallest
-  const art = ((await ui.findAll({ type: 'Button' })) as any[]).find(b => b.props.label === '[ copy art ]')
+  const art = ((await ui.findAll({ type: 'Button' })) as any[]).find(b => b.props.label === '[ art ]')
   await $.ui.press({ plugin: P, key: art.key, requestId: 'a1' })
   expect(copies.at(-1)).toMatch(/^Signups\nJan █+[▏▎▍▌▋▊▉]? 10\nFeb █+ 40\nMar █+[▏▎▍▌▋▊▉]? 20$/)
   await ui.unmount()

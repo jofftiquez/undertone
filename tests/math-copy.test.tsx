@@ -106,7 +106,7 @@ test('[ copy art ] on a table copies the boxed drawing', { options: OPTS }, asyn
   const { copies } = machine(on)
   await start($)
   const ui = await mount($, '| a | b |\n|---|---|\n| 1 | 2 |')
-  const art = ((await ui.findAll({ type: 'Button' })) as any[]).find(b => b.props.label === '[ copy art ]')
+  const art = ((await ui.findAll({ type: 'Button' })) as any[]).find(b => b.props.label === '[ art ]')
   await $.ui.press({ plugin: P, key: art.key, requestId: 'a1' })
   expect(copies.at(-1)).toMatch(/^┌.*┐\n│ a .*│\n[├╞].*[┤╡]\n│ 1 .*│\n└.*┘$/)
   await ui.unmount()

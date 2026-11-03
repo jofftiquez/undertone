@@ -63,6 +63,7 @@ Works on **macOS, Linux and Windows**. Requires a Claude Code build with mod sup
 - One line per call, in plain words, with a status mark: `◌` running, `✓` done, `✗` failed (opens by itself), `⊘` interrupted.
 - `[ + ]` opens a call with its **highlighted** command, diff, file or output, and a `[ copy ]` button.
 - Grouped calls fold into one summary row.
+- An opened edit is a **diff card**: the file and its `+N −M` counts over the change, in a rounded frame (*Diff style* `plain` drops the frame).
 - File paths open a **side panel** with the file, highlighted, and an *Open in editor* button that always opens a text editor.
 - A **turn summary** after each reply: `· Baked 42s · 5 tools · 38k in / 1.2k out · $0.041 · 1 failed`.
 - While Claude works, the spinner counts tools live: `Sauteing · 3 tools…`
@@ -76,9 +77,19 @@ tables itself, fitted to the bubble: columns keep their natural width when every
 inside their column. Wide characters (CJK, emoji, `★`) are measured as two cells, alignment (`:---:`, `---:`) is
 honoured, and **bold**, `code` and links keep their style. Styles: `rules`, `box` or `minimal`.
 
-Two ways to copy a table: `[ copy table ]` gives you the Markdown (for GitHub, Notion, Obsidian), and
-`[ copy as cells ]` gives you tab-separated plain text, which Slack, Excel, Google Sheets and Numbers paste as a real
-table.
+Five ways to copy a table, in the row above it, `copy [ md ] [ cells ] [ html ] [ art ] [ png ]`:
+
+| Button | What you get | Paste it into |
+|---|---|---|
+| `[ md ]` | The Markdown Claude wrote | GitHub, Notion, Obsidian |
+| `[ cells ]` | Tab-separated plain text | Slack, Excel, Google Sheets, Numbers |
+| `[ html ]` | A formatted table (header, alignment, bold, links) and its text twin | Word, Teams, Google Docs, Outlook |
+| `[ art ]` | The drawn, boxed table as text | Anywhere Markdown doesn't render |
+| `[ png ]` | A picture of the drawn table, in the theme's colours | Slides, docs, chat |
+
+`[ html ]` and `[ png ]` need the computer's own clipboard: `[ html ]` works on macOS, Windows, and Linux with
+[CopyQ](https://copyq.readthedocs.io/) running; `[ png ]` on macOS and Windows. Elsewhere, and over SSH, they copy
+text and say so. Pictures (charts, diagrams, figures) get `copy [ source ] [ art ] [ png ]`.
 
 ### Rich text
 
@@ -118,7 +129,7 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 - **Gantt charts**: a bar per task on a shared date axis, with sections; done tasks green, active amber, critical red, milestones `◆` (`YYYY-MM-DD` dates; durations in `d`, `h`, `w`, or `after <task>`).
 - **Sequence diagrams**: a box per participant over its lifeline, each message an arrow with its text above, replies dashed, notes and `loop`/`alt` labels as dim lines.
 - **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run. A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
-- `[ copy source ]` and `[ copy art ]` on each. Other mermaid kinds, and a block still streaming, stay code.
+- `[ source ]`, `[ art ]` and `[ png ]` on each. Other mermaid kinds (class, state, ER), and a block still streaming, stay code.
 - So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
 
 ### Math, footnotes and copying
@@ -128,7 +139,6 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 - **Math**: inline `$E = mc^2$` reads *E = mc²*, and `$\alpha \le \beta$` reads *α ≤ β* (a price like `$5` stays as written). Display math, `$$…$$` or a ` ```math ` block, reads as text with symbols, `(-b ± √(b²-4ac))/2a`, or as a typeset picture where the terminal draws pictures and [`ratex-render`](https://github.com/erweixin/RaTeX/releases) is on your `PATH` (rename the release's `render` binary). `[ copy latex ]` copies the source.
 - **Footnotes**: `[^1]` marks draw as superscripts, `¹`, with the notes under a short rule at the end of the reply.
 - **Copy without the mouse**: `/undertone copy` copies the last reply, `/undertone copy code` its last code block.
-- **Tables** also get `[ copy art ]`: the drawn, boxed table, for pasting where Markdown doesn't render.
 
 ### Like a chat app
 
@@ -239,6 +249,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Task list style | `brackets` | `ticks`, `box`, `progress` |
 | Tell Claude about pictures | on | the note on your prompts |
 | Math as pictures | on | needs `ratex-render`; off = text |
+| Diff style | `card` | `plain` |
 | Pictures inline | on | |
 | Desktop app wallpaper | `off` | `theme` |
 | System notification for long turns | on, after `30` s | |
@@ -264,7 +275,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 267 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 274 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

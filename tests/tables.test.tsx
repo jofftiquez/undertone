@@ -71,7 +71,7 @@ test('[ copy table ] copies the original markdown', async ($, on) => {
   const runs: string[] = []
   base(on, runs)
   const { ui } = await tableLines($, 100)
-  const key = (await ui.findAll({ type: 'Button' })).find((b: any) => String(b.props.label).includes('copy table'))!.key!
+  const key = (await ui.findAll({ type: 'Button' })).find((b: any) => b.props.label === '[ md ]')!.key!
   await $.ui.press({ plugin: P, key, requestId: 'r' })
   expect(runs.at(-1)).toBe(TABLE)
   await ui.unmount()
@@ -81,7 +81,7 @@ test('[ copy as cells ] copies tab-separated plain text for Slack and spreadshee
   const runs: string[] = []
   base(on, runs)
   const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'AssistantMessage', requestId: 'c', props: { text: '| Name | Notes |\n|---|---|\n| **Ann** | see [docs](https://x.y)<br>and `code` |\n| Bo | a \\| b |', isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
-  const key = (await ui.findAll({ type: 'Button' })).find((b: any) => String(b.props.label).includes('copy as cells'))!.key!
+  const key = (await ui.findAll({ type: 'Button' })).find((b: any) => b.props.label === '[ cells ]')!.key!
   await $.ui.press({ plugin: P, key, requestId: 'c' })
   expect(runs.at(-1)).toBe('Name\tNotes\nAnn\tsee docs and code\nBo\ta | b')
   await ui.unmount()

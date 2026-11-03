@@ -670,7 +670,7 @@ function outputText(out: unknown) {
 }
 
 // What an opened row shows: the call's code (highlighted) and its output.
-type Block = { source: string; language?: string; path?: string; startLine?: number; format?: 'diff'; full: string } | { text: string }
+type Block = { source: string; language?: string; path?: string; startLine?: number; format?: 'diff'; full: string; adds?: number; dels?: number } | { text: string }
 const DETAIL_LINES = 20
 const head = (src: string) => {
   const lines = src.replace(/\n$/, '').split('\n')
@@ -687,7 +687,7 @@ function blocksOf(call: Call): Block[] {
   const path = str('file_path') || str('path') || undefined
   const out: Block[] = []
   if (call.tool === 'Bash' && str('command')) out.push({ source: head(str('command')), language: 'bash', full: str('command') })
-  if (call.tool === 'Edit' && str('old_string')) out.push({ source: hunk(head(str('old_string')), head(str('new_string'))), format: 'diff', full: str('new_string') })
+  if (call.tool === 'Edit' && str('old_string')) out.push({ source: hunk(head(str('old_string')), head(str('new_string'))), format: 'diff', full: str('new_string'), path, adds: str('new_string').split('\n').length, dels: str('old_string').split('\n').length })
   if (call.tool === 'Write' && str('content')) out.push({ source: head(str('content')), path, full: str('content') })
   const o = outputText(call.output).trim()
   if (!o || call.tool === 'Edit' || call.tool === 'Write') return out
@@ -736,10 +736,25 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
               {'text' in b ? (
                 <Text dimColor>{b.text}</Text>
               ) : (
-                <Box flexDirection="column">
-                  <Code source={b.source} language={b.language} path={b.path} startLine={b.startLine} format={b.format} wrap="truncate-end" />
-                  <Button key={'copy-' + n + '-' + k} plain dimColor label="[ copy ]" onPress={p => copyText($, b.full, 'code', p.surface)} />
-                </Box>
+                b.format === 'diff' && opt<string>('diffStyle', 'card') === 'card' ? (
+                  // a diff card: the file and its counts over the changed lines, in a rounded frame
+                  <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
+                    <Box justifyContent="space-between">
+                      <Text>
+                        <Text dimColor>{(b.path ? shortPath(b.path) : 'edit') + '  '}</Text>
+                        <Text color="success">{'+' + (b.adds ?? 0)}</Text>
+                        <Text color="error">{' −' + (b.dels ?? 0)}</Text>
+                      </Text>
+                      <Button key={'copy-' + n + '-' + k} plain dimColor label="[ copy ]" onPress={p => copyText($, b.full, 'code', p.surface)} />
+                    </Box>
+                    <Code source={b.source} language={b.language} path={b.path} startLine={b.startLine} format={b.format} wrap="truncate-end" />
+                  </Box>
+                ) : (
+                  <Box flexDirection="column">
+                    <Code source={b.source} language={b.language} path={b.path} startLine={b.startLine} format={b.format} wrap="truncate-end" />
+                    <Button key={'copy-' + n + '-' + k} plain dimColor label="[ copy ]" onPress={p => copyText($, b.full, 'code', p.surface)} />
+                  </Box>
+                )
               )}
             </Box>
           ))}
@@ -754,6 +769,88 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
 async function copyText($: EngineInterface, text: string, what: string, surface?: RenderSurface) {
   const r = await $.ui.copy({ text, surface }).catch(() => ({ isCopied: false }))
   $.ui.toast(r.isCopied ? `Copied ${what}` : 'Copy failed')
+}
+
+// ---------- Rich copies ----------
+// HTML with a plain-text twin on the clipboard at once (Word, Teams, Docs take the HTML; Slack and
+// spreadsheets the text), and the drawn art as a PNG (docs, slides). These need the OS clipboard,
+// so over SSH, where only text reaches the local one, they copy the text instead and say so.
+const utf8Bytes = (t: string) => [...encodeURIComponent(t).matchAll(/%([0-9A-F]{2})|([^%])/gi)].map(m => (m[1] ? parseInt(m[1], 16) : m[2]!.charCodeAt(0)))
+const overSsh = async ($: EngineInterface) => !!((await $.env.get('SSH_CONNECTION')) || (await $.env.get('SSH_TTY')))
+async function copyRich($: EngineInterface, html: string, plain: string, what: string, surface?: RenderSurface) {
+  if (await overSsh($)) { await copyText($, plain, what + ' as text (a rich copy needs a local clipboard)', surface); return }
+  let r: { exitCode: number }
+  if (await windows($)) {
+    // CF_HTML: a header of byte offsets around the fragment
+    const pre = '<html><body><!--StartFragment-->', post = '<!--EndFragment--></body></html>'
+    const head = (a: number, b: number, c: number, d: number) => `Version:0.9\r\nStartHTML:${String(a).padStart(10, '0')}\r\nEndHTML:${String(b).padStart(10, '0')}\r\nStartFragment:${String(c).padStart(10, '0')}\r\nEndFragment:${String(d).padStart(10, '0')}\r\n`
+    const hl = head(0, 0, 0, 0).length
+    const start = hl, fragStart = hl + utf8Bytes(pre).length, fragEnd = fragStart + utf8Bytes(html).length, end = fragEnd + utf8Bytes(post).length
+    const cf = head(start, end, fragStart, fragEnd) + pre + html + post
+    r = await ps($, 'Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.DataObject; $d.SetData([System.Windows.Forms.DataFormats]::Html, $p.html); $d.SetText($p.text); [System.Windows.Forms.Clipboard]::SetDataObject($d, $true)', { html: cf, text: plain }).catch(() => ({ exitCode: 1 }))
+  } else {
+    // macOS: HTML_JXA (an ASCII-only script: osascript can misread AppleScript's «» outside a
+    // UTF-8 locale); Linux: CopyQ, which serves both formats.
+    r = await run($, ['sh', '-c',
+      'if [ "$(uname)" = Darwin ]; then osascript -l JavaScript -e "$1" "$2" "$3"; ' +
+      'elif command -v copyq >/dev/null; then copyq copy text/html "$2" text/plain "$3" >/dev/null; else exit 127; fi', 'sh', HTML_JXA, html, plain]).catch(() => ({ exitCode: 1 }))
+  }
+  if (r.exitCode === 0) $.ui.toast(`Copied ${what} (HTML and text)`)
+  else { await copyText($, plain, what + ' as text', surface); if (r.exitCode === 127) $.ui.toast('A rich copy on Linux needs CopyQ running; copied text') }
+}
+// The drawn art as a PNG on the clipboard, set in the OS's monospaced font.
+async function copyPng($: EngineInterface, art: string, th: Theme, what: string, surface?: RenderSurface) {
+  if (await overSsh($)) { await copyText($, art, what + ' as text (a picture copy needs a local clipboard)', surface); return }
+  const light = /light|latte|dawn/.test(th.name)
+  const fg = /^#[0-9a-f]{6}$/i.test(th.claude.text ?? '') ? th.claude.text! : SURFACE[th.name]?.text ?? (light ? '#24292f' : '#d7dae0')
+  const bg = SURFACE[th.name]?.surface ?? (light ? '#f6f8fa' : '#1e2027')
+  const r = (await windows($))
+    ? await ps($, 'Add-Type -AssemblyName System.Windows.Forms, System.Drawing; $f = New-Object System.Drawing.Font("Consolas", 11); $m = [System.Drawing.Graphics]::FromImage((New-Object System.Drawing.Bitmap 1, 1)).MeasureString($p.text, $f); ' +
+      '$b = New-Object System.Drawing.Bitmap ([int]$m.Width + 48), ([int]$m.Height + 48); $g = [System.Drawing.Graphics]::FromImage($b); $g.Clear([System.Drawing.ColorTranslator]::FromHtml($p.bg)); $g.TextRenderingHint = "AntiAliasGridFit"; ' +
+      '$g.DrawString($p.text, $f, (New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml($p.fg))), 24, 24); [System.Windows.Forms.Clipboard]::SetImage($b)', { text: art, fg, bg }).catch(() => ({ exitCode: 1 }))
+    : await run($, ['sh', '-c', '[ "$(uname)" = Darwin ] || exit 127; osascript -l JavaScript -e "$1" "$2" "$3" "$4"', 'sh', PNG_JXA, art, fg, bg]).catch(() => ({ exitCode: 1 }))
+  if (r.exitCode === 0) $.ui.toast(`Copied ${what} as a picture`)
+  else { await copyText($, art, what + ' as text', surface); $.ui.toast(r.exitCode === 127 ? 'A picture copy needs macOS or Windows; copied the text' : 'Could not make the picture; copied the text') }
+}
+// macOS: HTML and its plain-text twin on the pasteboard.
+const HTML_JXA = [
+  'function run(argv) {',
+  '  ObjC.import("AppKit")',
+  '  const pb = $.NSPasteboard.generalPasteboard',
+  '  pb.clearContents',
+  '  pb.setStringForType($(argv[0]), "public.html")',
+  '  pb.setStringForType($(argv[1]), "public.utf8-plain-text")',
+  '}',
+].join('\n')
+// macOS: draw the text into an image with AppKit and put it on the pasteboard.
+const PNG_JXA = [
+  'function run(argv) {',
+  '  ObjC.import("AppKit")',
+  '  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255)',
+  '  const [fr, fg2, fb] = hex(argv[1]), [br, bg2, bb] = hex(argv[2])',
+  '  const text = $.NSString.alloc.initWithUTF8String(argv[0])',
+  '  const attrs = $.NSMutableDictionary.alloc.init',
+  '  attrs.setObjectForKey($.NSFont.monospacedSystemFontOfSizeWeight(15, 0), $.NSFontAttributeName)',
+  '  attrs.setObjectForKey($.NSColor.colorWithSRGBRedGreenBlueAlpha(fr, fg2, fb, 1), $.NSForegroundColorAttributeName)',
+  '  const size = text.sizeWithAttributes(attrs), pad = 24',
+  '  const img = $.NSImage.alloc.initWithSize($.NSMakeSize(size.width + 2 * pad, size.height + 2 * pad))',
+  '  img.lockFocus',
+  '  $.NSColor.colorWithSRGBRedGreenBlueAlpha(br, bg2, bb, 1).setFill',
+  '  $.NSRectFill($.NSMakeRect(0, 0, size.width + 2 * pad, size.height + 2 * pad))',
+  '  text.drawAtPointWithAttributes($.NSMakePoint(pad, pad), attrs)',
+  '  img.unlockFocus',
+  '  const pb = $.NSPasteboard.generalPasteboard',
+  '  pb.clearContents',
+  '  if (!pb.writeObjects($.NSArray.arrayWithObject(img))) throw new Error("pasteboard")',
+  '}',
+].join('\n')
+// A table as HTML: header, alignment, and bold, italic, code and links in the cells.
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const cellHtml = (c: string) => esc(c).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>')
+  .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>').replace(/(?<![*\w])\*(?!\s)(.+?)\*(?!\w)/g, '<em>$1</em>').replace(/~~(.+?)~~/g, '<s>$1</s>')
+function tableHtml(t: Table) {
+  const td = (tag: string, c: string, k: number) => `<${tag}${t.align[k] !== 'left' ? ` style="text-align:${t.align[k]}"` : ''}>${cellHtml(c)}</${tag}>`
+  return `<table><thead><tr>${t.head.map((c, k) => td('th', c, k)).join('')}</tr></thead><tbody>${t.rows.map(r => `<tr>${r.map((c, k) => td('td', c, k)).join('')}</tr>`).join('')}</tbody></table>`
 }
 
 // ---------- Tables ----------
@@ -1320,7 +1417,7 @@ function sideBySide(ui: ElementTable, els: any[], parts: Part[], room: number, t
   const { Box } = ui
   const widths = parts.map(part => {
     const w = naturalWidth(part, room, th)
-    return w === undefined ? undefined : Math.max(w, hov ? 0 : part.kind === 'table' ? 47 : 30)
+    return w === undefined ? undefined : Math.max(w, hov ? 0 : part.kind === 'table' ? 46 : 32)
   })
   const out: any[] = []
   for (let i = 0; i < els.length;) {
@@ -1476,8 +1573,10 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
   const art = rows.map(r => r.map(sg => sg.text).join('').trimEnd()).join('\n')
   const copy = (
     <Box columnGap={1}>
-      <Button key={'src-' + i} plain dimColor label="[ copy source ]" onPress={p => copyText($, part.copy, 'source', p.surface)} />
-      <Button key={'art-' + i} plain dimColor label="[ copy art ]" onPress={p => copyText($, art, 'art', p.surface)} />
+      <Text dimColor>copy</Text>
+      <Button key={'src-' + i} plain dimColor label="[ source ]" onPress={p => copyText($, part.copy, 'the source', p.surface)} />
+      <Button key={'art-' + i} plain dimColor label="[ art ]" onPress={p => copyText($, art, 'the drawing', p.surface)} />
+      <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, art, th, 'the drawing', p.surface)} />
     </Box>
   )
   const body = (
@@ -2427,11 +2526,15 @@ export const register: Register = (on, options) => {
               const table = parseTable(part.md)
               if (!table) return <Markdown text={part.md} />
               const lines = layoutTable(table, room, th.tableStyle)
+              const art = layoutTable(table, room, 'box').map(l => l.map(sg => sg.text).join('').trimEnd()).join('\n')
               const copy = (
                 <Box columnGap={1}>
-                  <Button key={'cells-' + i} plain dimColor label="[ copy as cells ]" onPress={p => copyText($, tableCells(table), 'table as cells', p.surface)} />
-                  <Button key={'art-' + i} plain dimColor label="[ copy art ]" onPress={p => copyText($, layoutTable(table, room, 'box').map(l => l.map(sg => sg.text).join('').trimEnd()).join('\n'), 'table as art', p.surface)} />
-                  <Button key={'copy-' + i} plain dimColor label="[ copy table ]" onPress={p => copyText($, part.copy, 'table', p.surface)} />
+                  <Text dimColor>copy</Text>
+                  <Button key={'copy-' + i} plain dimColor label="[ md ]" onPress={p => copyText($, part.copy, 'the table as Markdown', p.surface)} />
+                  <Button key={'cells-' + i} plain dimColor label="[ cells ]" onPress={p => copyText($, tableCells(table), 'the table as cells', p.surface)} />
+                  <Button key={'html-' + i} plain dimColor label="[ html ]" onPress={p => copyRich($, tableHtml(table), tableCells(table), 'the table', p.surface)} />
+                  <Button key={'art-' + i} plain dimColor label="[ art ]" onPress={p => copyText($, art, 'the table as art', p.surface)} />
+                  <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, art, th, 'the table', p.surface)} />
                 </Box>
               )
               const body = (
