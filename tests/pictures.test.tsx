@@ -112,7 +112,7 @@ test('flowchart with a branch and a loop: a tree with edge labels and ↺', { op
 test('a mermaid kind undertone does not draw, or a block still streaming, stays code', { options: OPTS }, async ($, on) => {
   machine(on)
   await start($)
-  let ui = await mount($, fence('mermaid', 'quadrantChart\n  title Reach\n  x-axis Low --> High'))
+  let ui = await mount($, fence('mermaid', 'requirementDiagram\n  requirement r1 {\n    id: 1\n  }'))
   expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.language).toBe('mermaid')
   await ui.unmount()
   ui = await mount($, '```mermaid\nxychart-beta\n  bar [1, 2') // no closing fence yet
@@ -236,5 +236,49 @@ test('git graph: lanes, a branch starting with ╮, a merge with ╯, ids and ta
   const ui = await mount($, fence('mermaid', 'gitGraph\n  commit id: "init"\n  branch feature\n  checkout feature\n  commit id: "add png"\n  checkout main\n  merge feature tag: "v1"'))
   const rows = (await lines(ui)).filter(t => /^[│├●]/.test(t))
   expect(rows).toEqual(expect.arrayContaining(['●  init', '├─╮  feature', '│ ●  add png', '●─╯  merge feature  [v1]']))
+  await ui.unmount()
+})
+
+test('quadrant chart: quadrant labels, numbered points, a legend', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'quadrantChart\n  title Features\n  x-axis Low effort --> High effort\n  y-axis Low value --> High value\n  quadrant-1 Plan it\n  quadrant-2 Do it now\n  quadrant-3 Skip\n  quadrant-4 Maybe later\n  Copy as PNG: [0.3, 0.8]\n  Gantt: [0.7, 0.6]'))
+  const all = await lines(ui)
+  for (const t of ['Plan it', 'Do it now', 'Skip', 'Maybe later', 'Copy as PNG', 'Gantt', '  ▲ High value', '  ▼ Low value']) expect(all.some(x => x.includes(t))).toBe(true)
+  expect(all).toContain(' 1 ')
+  await ui.unmount()
+})
+
+test('timeline: each period on the line with its events', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'timeline\n  title undertone\n  section November\n    0.10 : chat app\n    0.13 : rich text : pictures'))
+  const all = await lines(ui)
+  expect(all).toContain('rich text · pictures')
+  expect(all.some(t => /^0\.10 +─$/.test(t))).toBe(true)
+  expect(all).toContain('November')
+  await ui.unmount()
+})
+
+test('sankey: flows grouped by source, a bar sized by value', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'sankey-beta\nVisitors,Docs,60\nVisitors,Install,30'))
+  const all = await lines(ui)
+  const bars = all.filter(t => /^█/.test(t))
+  expect(bars.length).toBe(2)
+  expect(bars[0]!.length).toBeGreaterThan(bars[1]!.length) // 60 longer than 30
+  expect(all).toContain(' 60')
+  await ui.unmount()
+})
+
+test('C4: people and systems as boxes with their kind, relations in words', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'C4Context\n  Person(dev, "Developer")\n  System_Ext(cc, "Claude Code", "the CLI")\n  Rel(dev, cc, "chats with", "terminal")'))
+  const all = await lines(ui)
+  expect(all.some(t => t.startsWith('person'))).toBe(true)
+  expect(all.some(t => t.startsWith('system (external)'))).toBe(true)
+  expect(all).toContain('  chats with (terminal)')
   await ui.unmount()
 })

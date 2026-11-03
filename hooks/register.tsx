@@ -739,7 +739,19 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
               {'text' in b ? (
                 <Text dimColor>{b.text}</Text>
               ) : (
-                b.format === 'diff' && opt<string>('diffStyle', 'card') === 'card' ? (
+                b.format === 'diff' && (opt<string>('diffStyle', 'card') === 'marks' || opt<string>('diffStyle', 'card') === 'bar') ? (
+                  // marks: only the + and − coloured; bar: a coloured ▌ before each changed line; no tint
+                  <Box flexDirection="column">
+                    {b.source.split('\n').filter(l => !l.startsWith('@@')).map(l => {
+                      const sign = l[0] === '+' ? '+' : l[0] === '-' ? '-' : ' '
+                      const ink = sign === '+' ? 'success' : sign === '-' ? 'error' : undefined
+                      return opt<string>('diffStyle', 'card') === 'bar'
+                        ? <Text><Text color={ink}>{sign === ' ' ? '  ' : '▌ '}</Text><Text dimColor={sign === '-'}>{l.slice(1)}</Text></Text>
+                        : <Text><Text color={ink} bold>{sign === '-' ? '−' : sign}</Text><Text>{' ' + l.slice(1)}</Text></Text>
+                    })}
+                    <Button key={'copy-' + n + '-' + k} plain dimColor label="[ copy ]" onPress={p => copyText($, b.full, 'code', p.surface)} />
+                  </Box>
+                ) : b.format === 'diff' && opt<string>('diffStyle', 'card') === 'card' ? (
                   // a diff card: the file and its counts over the changed lines, in a rounded frame
                   <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
                     <Box justifyContent="space-between">
@@ -1284,7 +1296,7 @@ function flowOf(src: string): Flow | undefined {
 // What the note on your prompts tells Claude (about 130 tokens).
 const PICTURE_HINT = [
   'This terminal draws, inside your replies: GitHub-flavoured markdown (headings, nested and task lists, > [!NOTE]/[!TIP]/[!WARNING] alerts);',
-  '```mermaid flowcharts (graph LR or TD, no subgraphs), stateDiagram, sequenceDiagram, classDiagram, erDiagram, gantt (YYYY-MM-DD dates), mindmap, journey, gitGraph, xychart-beta bar and line charts, and pie charts;',
+  '```mermaid flowcharts (graph LR or TD, no subgraphs), stateDiagram, sequenceDiagram, classDiagram, erDiagram, C4, gantt (YYYY-MM-DD dates), timeline, mindmap, journey, gitGraph, quadrantChart, sankey-beta, xychart-beta bar and line charts, and pie charts;',
   'and ```figure blocks, drawn exactly as written, where {accent:…} {warn:…} {ok:…} {note:…} {dim:…} {strong:…} colour a run',
   '(one-column glyphs only, at most 74 columns). Use a picture when it explains better than prose; keep short answers plain.',
 ].join(' ')
@@ -1441,7 +1453,8 @@ function naturalWidth(part: Part, room: number, th: Theme): number | undefined {
     const chart = chartOf(part.copy), flow = chart ? undefined : flowOf(part.copy), seq = chart || flow ? undefined : seqOf(part.copy), gantt = chart || flow || seq ? undefined : ganttOf(part.copy)
     const state = chart || flow || seq || gantt ? undefined : stateOf(part.copy), model = chart || flow || seq || gantt || state ? undefined : modelOf(part.copy)
     rows = chart ? chartRows(chart, room) : flow ? flowRows(flow, room) : seq ? seqRows(seq, room) : gantt ? ganttRows(gantt, room) : state ? flowRows(state, room) : model ? modelRows(model, room)
-      : mindmapRows(part.copy, room) ?? journeyRows(part.copy, room) ?? gitRows(part.copy, room)
+      : mindmapRows(part.copy, room) ?? journeyRows(part.copy, room) ?? gitRows(part.copy, room) ?? quadrantRows(part.copy, room)
+        ?? timelineRows(part.copy, room) ?? sankeyRows(part.copy, room) ?? ((c4) => (c4 ? modelRows(c4, room) : undefined))(c4Of(part.copy))
     if (chart) return Math.min(room, Math.max(...(rows ?? []).map(r => strWidth(r.map(sg => sg.text).join('').trimEnd())), 30)) // bars fill what they get
   }
   return rows ? Math.max(...rows.map(r => strWidth(r.map(sg => sg.text).join('').trimEnd()))) : undefined
@@ -1680,6 +1693,110 @@ function gitRows(src: string, room: number): Seg2[][] | undefined {
   return out.length && !out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? out : undefined
 }
 
+// Quadrant charts: a grid split in four with each quadrant's label, the points plotted as numbered
+// dots, and a legend under it.
+function quadrantRows(src: string, room: number): Seg2[][] | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (lines[0] !== 'quadrantChart') return undefined
+  let title: string | undefined, xa = ['', ''], ya = ['', '']
+  const quads: string[] = ['', '', '', '']
+  const points: { name: string; x: number; y: number }[] = []
+  for (const l of lines.slice(1)) {
+    const t = /^title\s+(.+)$/.exec(l); if (t) { title = t[1]; continue }
+    const ax = /^([xy])-axis\s+(.+?)(?:\s*-->\s*(.+))?$/.exec(l); if (ax) { (ax[1] === 'x' ? xa = [ax[2]!, ax[3] ?? ''] : ya = [ax[2]!, ax[3] ?? '']); continue }
+    const q = /^quadrant-([1-4])\s+(.+)$/.exec(l); if (q) { quads[Number(q[1]) - 1] = q[2]!; continue }
+    const pt = /^(.+?):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/.exec(l); if (pt) { points.push({ name: pt[1]!.trim(), x: Number(pt[2]), y: Number(pt[3]) }); continue }
+    if (/^(classDef|style)\b/.test(l)) continue
+    return undefined
+  }
+  if (!points.length) return undefined
+  const W = Math.min(room - 4, 56) & ~1, H = 12
+  if (W < 20) return undefined
+  const grid = Array.from({ length: H }, () => Array<string>(W).fill(' '))
+  const role = Array.from({ length: H }, () => Array<string | undefined>(W).fill(undefined))
+  const put = (r: number, c: number, t: string, ro?: string) => [...t].forEach((ch, k) => { if (r >= 0 && r < H && c + k >= 0 && c + k < W) { grid[r]![c + k] = ch; role[r]![c + k] = ro } })
+  for (let r = 0; r < H; r++) put(r, W / 2, '┊', 'dim')
+  put(H / 2, 0, '┄'.repeat(W), 'dim'); put(H / 2, W / 2, '┼', 'dim')
+  // quadrant 1 top right, 2 top left, 3 bottom left, 4 bottom right
+  put(0, W / 2 + 2, clip(quads[0]!, W / 2 - 3), 'note'); put(0, 1, clip(quads[1]!, W / 2 - 3), 'note')
+  put(H - 1, 1, clip(quads[2]!, W / 2 - 3), 'note'); put(H - 1, W / 2 + 2, clip(quads[3]!, W / 2 - 3), 'note')
+  points.forEach((pt, k) => put(Math.round((1 - Math.min(1, pt.y)) * (H - 1)), Math.round(Math.min(1, pt.x) * (W - 1)), String(k + 1), 'ink:' + SERIES_INKS[k % SERIES_INKS.length]))
+  const out: Seg2[][] = title ? [[{ text: title, role: 'strong' }]] : []
+  if (ya[1]) out.push([{ text: '  ▲ ' + ya[1], role: 'dim' }])
+  grid.forEach((row, r) => {
+    const segs: Seg2[] = [{ text: '│ ', role: 'dim' }]
+    row.forEach((ch, c) => { const last = segs.at(-1)!; if (last.role === role[r]![c] && segs.length > 1) last.text += ch; else segs.push({ text: ch, role: role[r]![c] }) })
+    out.push(segs)
+  })
+  out.push([{ text: '└' + '─'.repeat(W + 1) + '▶', role: 'dim' }])
+  if (xa[0] || xa[1]) out.push([{ text: '  ' + xa[0] + ' '.repeat(Math.max(1, W - strWidth(xa[0]!) - strWidth(xa[1]!))) + xa[1], role: 'dim' }])
+  if (ya[0]) out.push([{ text: '  ▼ ' + ya[0], role: 'dim' }])
+  points.forEach((pt, k) => out.push([{ text: ` ${k + 1} `, role: 'ink:' + SERIES_INKS[k % SERIES_INKS.length] }, { text: pt.name, role: 'strong' }, { text: `  (${pt.x}, ${pt.y})`, role: 'dim' }]))
+  return out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? undefined : out
+}
+
+// Timelines: each period with its events, sections as headers.
+function timelineRows(src: string, room: number): Seg2[][] | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (lines[0] !== 'timeline') return undefined
+  const out: Seg2[][] = []
+  const periods = lines.slice(1).filter(l => !/^(title|section)\s/.test(l) && !l.startsWith(':'))
+  const w = Math.min(16, Math.max(...periods.map(l => strWidth(l.split(':')[0]!.trim())), 4))
+  let k = 0
+  for (const l of lines.slice(1)) {
+    if (/^title\s/.test(l)) { out.push([{ text: l.slice(6).trim(), role: 'strong' }]); continue }
+    if (/^section\s/.test(l)) { out.push([{ text: l.slice(8).trim(), role: 'dim' }]); continue }
+    const [period, ...events] = l.split(':').map(x => x.trim())
+    const ink = 'ink:' + SERIES_INKS[k++ % SERIES_INKS.length]
+    if (!period) { out.push([{ text: ' '.repeat(w) + '   │  ' }, { text: events.filter(Boolean).join(' · '), role: 'strong' }]); continue }
+    out.push([{ text: (strWidth(period) > w ? clip(period, w) : period + ' '.repeat(w - strWidth(period))) + ' ─', role: ink }, { text: '●', role: ink }, { text: '─ ' }, { text: events.filter(Boolean).join(' · '), role: 'strong' }])
+  }
+  return out.length && !out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? out : undefined
+}
+
+// Sankey: each flow as source → target with a bar sized by its value, grouped by source.
+function sankeyRows(src: string, room: number): Seg2[][] | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (!/^sankey(-beta)?$/.test(lines[0] ?? '')) return undefined
+  const flows = lines.slice(1).map(l => listOf(l)).filter(f => f.length === 3 && Number.isFinite(Number(f[2]))).map(f => ({ from: f[0]!, to: f[1]!, v: Number(f[2]) }))
+  if (!flows.length) return undefined
+  const fromW = Math.min(18, Math.max(...flows.map(f => strWidth(f.from)))), toW = Math.min(18, Math.max(...flows.map(f => strWidth(f.to))))
+  const max = Math.max(...flows.map(f => f.v)), barRoom = room - fromW - toW - 14
+  if (barRoom < 6) return undefined
+  const order = [...new Set(flows.map(f => f.from))]
+  const out: Seg2[][] = []
+  order.forEach((src2, k) => flows.filter(f => f.from === src2).forEach((f, j) => {
+    const ink = 'ink:' + SERIES_INKS[k % SERIES_INKS.length]
+    const pad = (t: string, w: number) => (strWidth(t) > w ? clip(t, w) : t + ' '.repeat(w - strWidth(t)))
+    out.push([{ text: j ? ' '.repeat(fromW) : pad(f.from, fromW), role: j ? undefined : 'strong' }, { text: ' ──▶ ', role: 'dim' }, { text: pad(f.to, toW) + ' ' }, { text: barOf((f.v / max) * barRoom), role: ink }, { text: ' ' + fmtNum(f.v), role: 'note' }])
+  }))
+  return out
+}
+
+// C4 diagrams: people and systems as boxes (their kind and description inside), relations in words.
+function c4Of(src: string): Model | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (!/^C4(Context|Container|Component|Dynamic|Deployment)\b/.test(lines[0] ?? '')) return undefined
+  const m: Model = { boxes: [], links: [] }
+  const ids = new Map<string, string>()
+  const args = (s2: string) => s2.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(x => unquote(x.trim())) // commas outside quotes
+  for (const l of lines.slice(1)) {
+    const el = /^(Person|Person_Ext|System|System_Ext|SystemDb|SystemDb_Ext|Container|Container_Ext|ContainerDb|Component|ComponentDb)\((.*)\)$/.exec(l)
+    if (el) {
+      const [id, label, ...rest] = args(el[2]!)
+      const kind = el[1]!.replace('_Ext', ' (external)').replace('Db', ' database').replace('Person', 'Person').toLowerCase()
+      ids.set(id!, label || id!)
+      m.boxes.push({ name: label || id!, members: [kind, ...rest.filter(r => r && !/^\$/.test(r)).slice(0, 2)] })
+      continue
+    }
+    const rel = /^(?:Bi)?Rel(?:_[A-Za-z]+)?\((.*)\)$/.exec(l)
+    if (rel) { const [a, b, text, tech] = args(rel[1]!); m.links.push({ from: ids.get(a!) ?? a!, to: ids.get(b!) ?? b!, mark: '▶', text: (text ?? '') + (tech ? ` (${tech})` : '') }); continue }
+    if (/^(title|UpdateLayoutConfig|UpdateElementStyle|UpdateRelStyle|LAYOUT_|Boundary|Enterprise_Boundary|System_Boundary|Container_Boundary|\})/.test(l)) continue
+    return undefined
+  }
+  return m.boxes.length ? m : undefined
+}
+
 // One rich block, or undefined to leave the part to the drawing it had before.
 function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button, Markdown, Code } = ui
@@ -1811,7 +1928,8 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
     else if (gantt) rows = ganttRows(gantt, room)
     else if (state) rows = flowRows(state, room)
     else if (model) rows = modelRows(model, room)
-    else rows = mindmapRows(part.copy, room) ?? journeyRows(part.copy, room) ?? gitRows(part.copy, room)
+    else rows = mindmapRows(part.copy, room) ?? journeyRows(part.copy, room) ?? gitRows(part.copy, room) ?? quadrantRows(part.copy, room)
+      ?? timelineRows(part.copy, room) ?? sankeyRows(part.copy, room) ?? ((c4) => (c4 ? modelRows(c4, room) : undefined))(c4Of(part.copy))
     // a kind undertone does not draw, or one too wide for the bubble: the source stays readable as code
     if (!rows) return undefined
   }

@@ -131,3 +131,31 @@ test('an edit whose output has arrived reads ✓, even with isRunning still set 
   expect(texts).not.toContain(' ◌ ')
   await ui.unmount()
 })
+
+for (const [style, want] of [['marks', ['+', ' c', '−', ' b']], ['bar', ['▌ ', 'c', 'b']]] as const)
+  test(`diff style ${style}: no tint, the change marked`, { options: { ...OPTS, diffStyle: style } }, async ($, on) => {
+    machine(on)
+    await start($)
+    const call = { tool_use_id: 'ed3', tool: 'Edit', input: { file_path: '/work/a.ts', old_string: 'b', new_string: 'c' }, isRunning: false, isErrored: false, isInterrupted: false }
+    const row = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 'ed3', props: call } as any)
+    await $.ui.press({ plugin: P, key: 't0', requestId: 'ed3' })
+    await row.unmount()
+    const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 'ed3', props: call } as any)
+    const texts = ((await ui.findAll({ type: 'Text' })) as any[]).map(t => t.text)
+    for (const w of want) expect(texts).toContain(w)
+    expect((await ui.findAll({ type: 'Code' })).length).toBe(0)
+    await ui.unmount()
+  })
+
+test('diff style full: the tinted lines, no frame', { options: { ...OPTS, diffStyle: 'full' } }, async ($, on) => {
+  machine(on)
+  await start($)
+  const call = { tool_use_id: 'ed4', tool: 'Edit', input: { file_path: '/work/a.ts', old_string: 'b', new_string: 'c' }, isRunning: false, isErrored: false, isInterrupted: false }
+  const row = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 'ed4', props: call } as any)
+  await $.ui.press({ plugin: P, key: 't0', requestId: 'ed4' })
+  await row.unmount()
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 'ed4', props: call } as any)
+  expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.format).toBe('diff')
+  expect(((await ui.findAll({ type: 'Box' })) as any[]).some(b => b.props.borderStyle === 'round')).toBe(false)
+  await ui.unmount()
+})
