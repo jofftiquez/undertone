@@ -1,0 +1,23 @@
+name: Latest Claude Code
+
+# Weekly early warning: run the checks on the newest Claude Code, so an engine change
+# that breaks undertone shows up here (GitHub emails a failed scheduled run) before users
+# hit it. CI itself stays pinned in ci.yml; bump that pin once this run is green.
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  latest-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @anthropic-ai/claude-code@latest
+      - run: claude --version
+      - run: claude plugin validate .
+      - run: claude plugin test .
