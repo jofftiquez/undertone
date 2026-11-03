@@ -10,12 +10,24 @@ const PROMPT = {
 
 const NOW = Date.UTC(2026, 10, 3, 7, 41) // 3:41 PM at UTC+8
 
-test('a stamped prompt shows its local time in the You header', async ($, on) => {
+// Everything undertone's session.start asks of the engine, so the start hook runs in full on
+// every platform (an unanswered call skips the whole hook, and the UTC offset with it).
+function machine(on: any) {
   on('clock.now', () => ({ value: NOW }))
   on('session.id', () => ({ value: 'sess-1234' }))
+  on('session.cwd', () => ({ value: '/work' }))
+  on('session.root', () => ({ value: '/work' }))
+  on('env.get', (_: any, e: any) => ({ value: ({ HOME: '/home/u', TMPDIR: '/tmp' } as Record<string, string>)[e.name ?? e] }))
+  on('fs.exists', () => ({ value: false }))
+  on('fs.list', () => ({ value: [] }))
+  on('store.get', () => ({ value: undefined }))
+  on('session.start', (_: any, e: any) => ({ cwd: e.cwd }))
+  on('state.get', (_: any, e: any) => ({ value: e.key === 'stamps' ? { value: NOW, version: 1 } : { value: undefined, version: 0 } }))
+}
+
+test('a stamped prompt shows its local time in the You header', async ($, on) => {
+  machine(on)
   on('process.run', () => ({ value: { exitCode: 0, stdout: '+0800\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('state.get', (_, e) => ({ value: e.key === 'stamps' ? { value: NOW, version: 1 } : { value: undefined, version: 0 } }))
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount(PROMPT)
@@ -24,11 +36,8 @@ test('a stamped prompt shows its local time in the You header', async ($, on) =>
 })
 
 test('the time still shows when the OS timezone lookup fails', async ($, on) => {
-  on('clock.now', () => ({ value: NOW }))
-  on('session.id', () => ({ value: 'sess-1234' }))
+  machine(on)
   on('process.run', () => { throw new Error('binary mid-update') })
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('state.get', (_, e) => ({ value: e.key === 'stamps' ? { value: NOW, version: 1 } : { value: undefined, version: 0 } }))
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount(PROMPT)
