@@ -381,7 +381,22 @@ function indexLine(line: string) {
     }
   }
 }
+// After /clear or a resume the process goes on under a new session id and no session.start
+// fires, so the index notices the change itself: it drops the old session's transcript,
+// index, pins and turn summaries, and loads the new session's pins.
+let indexedSid: string | undefined
+async function switchSession($: EngineInterface, sid: string) {
+  transcriptPath = undefined
+  readOffset = 0
+  idx.times = {}; idx.prev = {}; idx.images = {}; idx.lastPrompt = 0; idx.prompts = []
+  await $.state.set(PINS, ((await $.store.get('pins:' + sid).catch(() => undefined)) as Record<string, Pin> | undefined) ?? null)
+  await $.state.set(TURNS, null)
+  await $.state.set(SHOW_OLD, null)
+}
 async function indexTranscriptInner($: EngineInterface) {
+  const sid = await $.session.id()
+  if (indexedSid !== undefined && sid !== indexedSid) await switchSession($, sid)
+  indexedSid = sid
   if (!transcriptPath) {
     transcriptPath = await findTranscript($)
     if (!transcriptPath) return // not written yet; the next index tries again

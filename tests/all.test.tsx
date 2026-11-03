@@ -16,12 +16,12 @@ const TRANSCRIPT = [
 ].join('\n') + '\n'
 
 type Run = { argv: readonly string[]; stdin?: string }
-function engine(on: any, opts: { transcript?: string; cwd?: string } = {}) {
+function engine(on: any, opts: { transcript?: string; cwd?: string; sid?: () => string } = {}) {
   const runs: Run[] = []
   const toasts: string[] = []
   const writes: Record<string, string> = {}
   on('clock.now', () => ({ value: NOW }))
-  on('session.id', () => ({ value: 'sess-1234-abcd' }))
+  on('session.id', () => ({ value: opts.sid?.() ?? 'sess-1234-abcd' }))
   on('session.root', () => ({ value: opts.cwd ?? '/work/proj' }))
   on('session.cwd', () => ({ value: opts.cwd ?? '/work/proj' }))
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }))
@@ -115,6 +115,29 @@ test('pasted images are saved to a private, per-user folder', async ($, on) => {
   expect(save).toContain('umask 077')
   expect(save).toContain('undertone-$(id -u)')
   expect(save).toContain('[ ! -L "$d" ]')
+})
+
+test('after /clear or a resume the index follows the new session', async ($, on) => {
+  let sid = 'sess-1234-abcd'
+  engine(on, { transcript: TRANSCRIPT, sid: () => sid })
+  const store: Record<string, unknown> = {} // pins are kept per session id
+  on('store.get', (_: any, e: any) => ({ value: store[e.key] }))
+  on('store.set', (_: any, e: any) => { store[e.key] = e.value; return { value: undefined } })
+  on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
+  await start($)
+  const doctor = async () => JSON.stringify(await $.command.run({ command: 'undertone-doctor', args: '', ...CMD }))
+  expect(await doctor()).toContain('sess-1234-abcd.jsonl')
+  const pins = async () => JSON.stringify(await $.command.run({ command: 'undertone-pins', args: '', ...CMD }))
+  const ui = await $.ui.mount(reply('r1', 'pin me'))
+  const star = (await ui.findAll({ type: 'Button' })).find((b: any) => String(b.props.label).includes('☆'))!
+  await $.ui.press({ plugin: P, key: star.key!, requestId: 'r1' })
+  await ui.unmount()
+  expect(await pins()).toContain('pin me')
+  // /clear: same process, new session id, no session.start
+  sid = 'sess-5678-efgh'
+  await $.turn.complete({ answer: 'ok', durationMs: 1000, isAborted: false, turnId: 't', reason: 'answer' })
+  expect(await doctor()).toContain('sess-5678-efgh.jsonl')
+  expect(await pins()).not.toContain('pin me')
 })
 
 test('session end deletes the saved images', async ($, on) => {
