@@ -12,6 +12,7 @@ const NOW = Date.UTC(2026, 10, 3, 7, 41) // 3:41 PM at UTC+8
 
 test('a stamped prompt shows its local time in the You header', async ($, on) => {
   on('clock.now', () => ({ value: NOW }))
+  on('session.id', () => ({ value: 'sess-1234' }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: '+0800\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('state.get', (_, e) => ({ value: e.key === 'stamps' ? { value: NOW, version: 1 } : { value: undefined, version: 0 } }))
@@ -24,6 +25,7 @@ test('a stamped prompt shows its local time in the You header', async ($, on) =>
 
 test('the time still shows when the OS timezone lookup fails', async ($, on) => {
   on('clock.now', () => ({ value: NOW }))
+  on('session.id', () => ({ value: 'sess-1234' }))
   on('process.run', () => { throw new Error('binary mid-update') })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('state.get', (_, e) => ({ value: e.key === 'stamps' ? { value: NOW, version: 1 } : { value: undefined, version: 0 } }))
