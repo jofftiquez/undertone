@@ -1252,7 +1252,7 @@ function flowOf(src: string): Flow | undefined {
 // What the note on your prompts tells Claude (about 130 tokens).
 const PICTURE_HINT = [
   'This terminal draws, inside your replies: GitHub-flavoured markdown (headings, nested and task lists, > [!NOTE]/[!TIP]/[!WARNING] alerts);',
-  '```mermaid flowcharts (graph LR or TD, plain nodes and edges, no subgraphs), sequenceDiagram, gantt (YYYY-MM-DD dates), xychart-beta bar and line charts, and pie charts;',
+  '```mermaid flowcharts (graph LR or TD, no subgraphs), stateDiagram, sequenceDiagram, classDiagram, erDiagram, gantt (YYYY-MM-DD dates), xychart-beta bar and line charts, and pie charts;',
   'and ```figure blocks, drawn exactly as written, where {accent:…} {warn:…} {ok:…} {note:…} {dim:…} {strong:…} colour a run',
   '(one-column glyphs only, at most 74 columns). Use a picture when it explains better than prose; keep short answers plain.',
 ].join(' ')
@@ -1407,7 +1407,8 @@ function naturalWidth(part: Part, room: number, th: Theme): number | undefined {
   if (part.lang === 'figure') { const fig = figureOf(part.copy, room); rows = 'lines' in fig ? fig.lines : undefined }
   else {
     const chart = chartOf(part.copy), flow = chart ? undefined : flowOf(part.copy), seq = chart || flow ? undefined : seqOf(part.copy), gantt = chart || flow || seq ? undefined : ganttOf(part.copy)
-    rows = chart ? chartRows(chart, room) : flow ? flowRows(flow, room) : seq ? seqRows(seq, room) : gantt ? ganttRows(gantt, room) : undefined
+    const state = chart || flow || seq || gantt ? undefined : stateOf(part.copy), model = chart || flow || seq || gantt || state ? undefined : modelOf(part.copy)
+    rows = chart ? chartRows(chart, room) : flow ? flowRows(flow, room) : seq ? seqRows(seq, room) : gantt ? ganttRows(gantt, room) : state ? flowRows(state, room) : model ? modelRows(model, room) : undefined
     if (chart) return Math.min(room, Math.max(...(rows ?? []).map(r => strWidth(r.map(sg => sg.text).join('').trimEnd())), 30)) // bars fill what they get
   }
   return rows ? Math.max(...rows.map(r => strWidth(r.map(sg => sg.text).join('').trimEnd()))) : undefined
@@ -1431,6 +1432,111 @@ function sideBySide(ui: ElementTable, els: any[], parts: Part[], room: number, t
     i = j + 1
   }
   return out
+}
+
+// State diagrams draw like flowcharts: [*] as a source is the start ●, as a target the end ◉.
+function stateOf(src: string): Flow | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (!/^stateDiagram(-v2)?\b/.test(lines[0] ?? '')) return undefined
+  const flow: Flow = { dir: 'TD', order: [], label: new Map(), out: new Map() }
+  const add = (id: string, label?: string) => { if (!flow.label.has(id)) { flow.order.push(id); flow.label.set(id, label ?? id) } else if (label) flow.label.set(id, label) }
+  for (const l of lines.slice(1)) {
+    if (/^(direction|note|end note|classDef|class|state\s+\S+\s*\{|\}|--)\b/.test(l) || l === '}') { if (/\{$/.test(l)) return undefined; continue }
+    const named = /^state\s+"([^"]+)"\s+as\s+(\S+)$/.exec(l)
+    if (named) { add(named[2]!, named[1]); continue }
+    const edge = /^(\[\*\]|[\w.-]+)\s*-->\s*(\[\*\]|[\w.-]+)\s*(?::\s*(.*))?$/.exec(l)
+    if (edge) {
+      const from = edge[1] === '[*]' ? '__start' : edge[1]!, to = edge[2] === '[*]' ? '__end' : edge[2]!
+      add(from, from === '__start' ? '●' : undefined); add(to, to === '__end' ? '◉' : undefined)
+      const list = flow.out.get(from) ?? []; list.push({ to, text: edge[3]?.trim() || undefined }); flow.out.set(from, list)
+      continue
+    }
+    const desc = /^([\w.-]+)\s*:\s*(.+)$/.exec(l)
+    if (desc) { add(desc[1]!, desc[2]!.trim()); continue }
+    if (/^[\w.-]+$/.test(l)) { add(l); continue }
+    return undefined
+  }
+  return flow.order.length ? flow : undefined
+}
+
+// Class and ER diagrams: a box per class or entity with its members, side by side as they fit,
+// and the relations under them in words: "Duck ──▷ Animal  inherits".
+type Model = { boxes: { name: string; members: string[] }[]; links: { from: string; to: string; mark: string; text: string }[] }
+function modelOf(src: string): Model | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  const kind = /^(classDiagram|erDiagram)\b/.exec(lines[0] ?? '')?.[1]
+  if (!kind) return undefined
+  const m: Model = { boxes: [], links: [] }
+  const box = (name: string) => { let b = m.boxes.find(x => x.name === name); if (!b) { b = { name, members: [] }; m.boxes.push(b) } return b }
+  let open: { name: string; members: string[] } | undefined
+  for (const l of lines.slice(1)) {
+    if (open) { if (l === '}') { open = undefined; continue } open.members.push(l.replace(/\s+/g, ' ')); continue }
+    const block = /^(?:class\s+)?([\w-]+)\s*\{$/.exec(l)
+    if (block) { open = box(block[1]!); continue }
+    if (kind === 'classDiagram') {
+      const rel = /^([\w-]+)\s*(?:"[^"]*"\s*)?(<\|--|--\|>|\*--|--\*|o--|--o|-->|<--|\.\.>|<\.\.|\.\.\|>|<\|\.\.|--|\.\.)\s*(?:"[^"]*"\s*)?([\w-]+)\s*(?::\s*(.*))?$/.exec(l)
+      if (rel) {
+        const [, a, op, b, label] = rel as unknown as [string, string, string, string, string | undefined]
+        box(a); box(b)
+        const kinds: Record<string, [string, string, boolean]> = { '<|--': ['▷', 'inherits', true], '--|>': ['▷', 'inherits', false], '*--': ['◆', 'contains', true], '--*': ['◆', 'contains', false], 'o--': ['◇', 'has', true], '--o': ['◇', 'has', false], '-->': ['▶', 'uses', false], '<--': ['▶', 'uses', true], '..>': ['▶', 'depends on', false], '<..': ['▶', 'depends on', true], '..|>': ['▷', 'implements', false], '<|..': ['▷', 'implements', true], '--': ['─', 'links', false], '..': ['┄', 'links', false] }
+        const [mark, word, flip] = kinds[op]!
+        m.links.push(flip ? { from: b, to: a, mark, text: label?.trim() || word } : { from: a, to: b, mark, text: label?.trim() || word })
+        continue
+      }
+      const member = /^([\w-]+)\s*:\s*(.+)$/.exec(l)
+      if (member) { box(member[1]!).members.push(member[2]!.trim()); continue }
+      if (/^class\s+[\w-]+$/.test(l)) { box(l.slice(6).trim()); continue }
+    } else {
+      const rel = /^([\w-]+)\s*([|}o]{1,2})(--|\.\.)([|{o]{1,2})\s*([\w-]+)\s*:\s*"?([^"]*)"?$/.exec(l)
+      if (rel) {
+        const many = (x: string) => (/[{}]/.test(x) ? 'many' : 'one')
+        box(rel[1]!); box(rel[5]!)
+        m.links.push({ from: rel[1]!, to: rel[5]!, mark: '▶', text: `${rel[6]!.trim() || 'relates to'} (${many(rel[2]!)} to ${many(rel[4]!)})` })
+        continue
+      }
+      if (/^[\w-]+$/.test(l)) { box(l); continue }
+    }
+    if (/^(direction|note|classDef|style|title)\b/.test(l)) continue
+    return undefined
+  }
+  return m.boxes.length ? m : undefined
+}
+function modelRows(m: Model, room: number): Seg2[][] | undefined {
+  const inks = m.boxes.map((_, k) => 'ink:' + SERIES_INKS[k % SERIES_INKS.length])
+  const widths = m.boxes.map(b => Math.max(strWidth(b.name), ...b.members.map(strWidth)) + 4)
+  if (Math.max(...widths) > room) return undefined
+  const out: Seg2[][] = []
+  // boxes in rows that fit
+  for (let i = 0; i < m.boxes.length;) {
+    let j = i, used = widths[i]!
+    while (j + 1 < m.boxes.length && used + 2 + widths[j + 1]! <= room) { j++; used += 2 + widths[j]! }
+    const group = m.boxes.slice(i, j + 1)
+    const height = Math.max(...group.map(b => b.members.length)) + (group.some(b => b.members.length) ? 1 : 0)
+    const lines: Seg2[][] = Array.from({ length: height + 3 }, () => [])
+    group.forEach((b, k) => {
+      const w = widths[i + k]!, ink = inks[i + k]!, gap = k ? '  ' : ''
+      const pad = (t: string) => t + ' '.repeat(Math.max(0, w - 4 - strWidth(t)))
+      lines[0]!.push({ text: gap }, { text: '╭' + '─'.repeat(w - 2) + '╮', role: ink })
+      lines[1]!.push({ text: gap }, { text: '│ ', role: ink }, { text: pad(b.name), role: 'strong' }, { text: ' │', role: ink })
+      for (let r = 0; r < height; r++) {
+        const row = lines[2 + r]!
+        row.push({ text: gap })
+        if (r === 0 && b.members.length) row.push({ text: '├' + '─'.repeat(w - 2) + '┤', role: ink })
+        else {
+          const member = b.members[r - (b.members.length ? 1 : 0)]
+          row.push({ text: '│ ', role: ink }, { text: pad(member ?? ''), role: 'dim' }, { text: ' │', role: ink })
+        }
+      }
+      lines[height + 2]!.push({ text: gap }, { text: '╰' + '─'.repeat(w - 2) + '╯', role: ink })
+    })
+    out.push(...lines)
+    i = j + 1
+  }
+  for (const ln of m.links) {
+    const a = m.boxes.findIndex(b => b.name === ln.from), b = m.boxes.findIndex(x => x.name === ln.to)
+    out.push([{ text: ln.from, role: inks[a] }, { text: ` ──${ln.mark} `, role: 'accent' }, { text: ln.to, role: inks[b] }, { text: '  ' + ln.text, role: 'note' }])
+  }
+  return out.some(r => strWidth(r.map(sg => sg.text).join('')) > room) ? undefined : out
 }
 
 // One rich block, or undefined to leave the part to the drawing it had before.
@@ -1556,10 +1662,14 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
     const flow = chart ? undefined : flowOf(part.copy)
     const seq = chart || flow ? undefined : seqOf(part.copy)
     const gantt = chart || flow || seq ? undefined : ganttOf(part.copy)
+    const state = chart || flow || seq || gantt ? undefined : stateOf(part.copy)
+    const model = chart || flow || seq || gantt || state ? undefined : modelOf(part.copy)
     if (chart) rows = chartRows(chart, room)
     else if (flow) rows = flowRows(flow, room)
     else if (seq) rows = seqRows(seq, room)
     else if (gantt) rows = ganttRows(gantt, room)
+    else if (state) rows = flowRows(state, room)
+    else if (model) rows = modelRows(model, room)
     else return undefined // a mermaid kind undertone does not draw: Claude Code's code block
     if (!rows) return undefined // too wide for the bubble: the source stays readable as code
   }
@@ -1655,7 +1765,8 @@ function flowRows(flow: Flow, room: number): Seg2[][] | undefined {
   const seen = new Set<string>()
   const walk = (id: string, prefix: string, lead: Seg2[]) => {
     const again = seen.has(id)
-    out.push([...lead, { text: '▢ ', role: inkOf(id) }, { text: flow.label.get(id)!, role: again ? 'dim' : 'strong' }, ...(again ? [{ text: ' ↺', role: 'dim' }] : [])])
+    const marker = id === '__start' || id === '__end' // a state diagram's ● start and ◉ end are their own mark
+    out.push([...lead, ...(marker ? [] : [{ text: '▢ ', role: inkOf(id) }]), { text: flow.label.get(id)!, role: again ? 'dim' : marker ? 'accent' : 'strong' }, ...(again ? [{ text: ' ↺', role: 'dim' }] : [])])
     if (again) return
     seen.add(id)
     const kids = flow.out.get(id) ?? []

@@ -112,7 +112,7 @@ test('flowchart with a branch and a loop: a tree with edge labels and ↺', { op
 test('a mermaid kind undertone does not draw, or a block still streaming, stays code', { options: OPTS }, async ($, on) => {
   machine(on)
   await start($)
-  let ui = await mount($, fence('mermaid', 'classDiagram\n  Animal <|-- Duck'))
+  let ui = await mount($, fence('mermaid', 'mindmap\n  root((plan))\n    a\n    b'))
   expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.language).toBe('mermaid')
   await ui.unmount()
   ui = await mount($, '```mermaid\nxychart-beta\n  bar [1, 2') // no closing fence yet
@@ -166,5 +166,42 @@ test('a sequence diagram too wide for the bubble stays code', { options: OPTS },
   await start($)
   const ui = await mount($, fence('mermaid', 'sequenceDiagram\n  A->>B: ' + 'a very long message '.repeat(8)))
   expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.language).toBe('mermaid')
+  await ui.unmount()
+})
+
+test('state diagram: drawn like a flowchart, ● where it starts and ◉ where it ends', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'stateDiagram-v2\n  [*] --> Draft\n  Draft --> Review : submit\n  Review --> Draft : changes\n  Review --> Merged : approve\n  Merged --> [*]'))
+  const all = await lines(ui)
+  expect(all).toContain('●')
+  expect(all).toContain('◉')
+  expect(all).toContain(' submit ')
+  expect(all).toContain(' ↺')
+  expect(all.some(t => t === '▢ ' + '●')).toBe(false) // no box glyph on the start
+  await ui.unmount()
+})
+
+test('class diagram: a box per class with its members, relations in words', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'classDiagram\n  Animal <|-- Duck\n  class Duck {\n    +String beak\n    +swim()\n  }\n  Animal : +int age\n  Duck *-- Wing'))
+  const all = await lines(ui)
+  for (const name of ['Animal  ', 'Duck          ', 'Wing  ']) expect(all.some(t => t.startsWith(name.trim()))).toBe(true)
+  expect(all.some(t => t.startsWith('+swim()'))).toBe(true)
+  expect(all).toContain('  inherits')
+  expect(all).toContain('  contains')
+  expect(all).toContain(' ──▷ ')
+  await ui.unmount()
+})
+
+test('ER diagram: entities as boxes, relations with their cardinality', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('mermaid', 'erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  CUSTOMER {\n    string name\n  }'))
+  const all = await lines(ui)
+  expect(all.some(t => t.startsWith('CUSTOMER'))).toBe(true)
+  expect(all.some(t => t.startsWith('string name'))).toBe(true)
+  expect(all).toContain('  places (one to many)')
   await ui.unmount()
 })
