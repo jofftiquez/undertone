@@ -112,7 +112,7 @@ test('flowchart with a branch and a loop: a tree with edge labels and ↺', { op
 test('a mermaid kind undertone does not draw, or a block still streaming, stays code', { options: OPTS }, async ($, on) => {
   machine(on)
   await start($)
-  let ui = await mount($, fence('mermaid', 'gantt\n  title Plan\n  section A\n  Task :a1, 2026-01-01, 3d'))
+  let ui = await mount($, fence('mermaid', 'classDiagram\n  Animal <|-- Duck'))
   expect(((await ui.findAll({ type: 'Code' })) as any[])[0]?.props.language).toBe('mermaid')
   await ui.unmount()
   ui = await mount($, '```mermaid\nxychart-beta\n  bar [1, 2') // no closing fence yet

@@ -385,6 +385,12 @@
       "title": "Math as pictures",
       "description": "Display math ($$…$$, ```math) typeset as a picture when ratex-render is on your PATH and the terminal draws pictures; otherwise math reads as text with symbols",
       "default": true
+    },
+    "colorText": {
+      "type": "boolean",
+      "title": "Colour numbers and paths",
+      "description": "In plain paragraphs and list items: numbers, versions, durations and percentages in amber, paths in their own colour; right-to-left text right-aligned. Text with a link stays Claude Code's own, so the link stays clickable",
+      "default": true
     }
   }
 }

@@ -775,14 +775,14 @@ function charWidth(cp: number) {
 }
 const strWidth = (t: string) => { let w = 0; for (const ch of t) w += charWidth(ch.codePointAt(0)!); return w }
 
-type Seg = { text: string; bold?: boolean; code?: boolean; italic?: boolean; link?: boolean }
+type Seg = { text: string; bold?: boolean; code?: boolean; italic?: boolean; link?: boolean; strike?: boolean; num?: boolean; path?: boolean }
 // Inline markdown in a cell → styled words: **bold**, *italic*, `code`, [text](url).
 function cellWords(cell: string): Seg[] {
   const segs: Seg[] = []
-  const re = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\([^)]*\)|(?<![*\w])\*(?!\s)(.+?)\*(?!\w)|([^*`[]+|[*`[])/g
+  const re = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\([^)]*\)|(?<![*\w])\*(?!\s)(.+?)\*(?!\w)|~~(.+?)~~|((?:[^*`[~]|~(?!~))+|[*`[~])/g
   for (const m of cell.matchAll(re)) {
     const [text, style]: [string, Partial<Seg>] = m[1] !== undefined ? [m[1], { bold: true }] : m[2] !== undefined ? [m[2], { code: true }]
-      : m[3] !== undefined ? [m[3], { link: true }] : m[4] !== undefined ? [m[4], { italic: true }] : [m[5] ?? m[0], {}]
+      : m[3] !== undefined ? [m[3], { link: true }] : m[4] !== undefined ? [m[4], { italic: true }] : m[5] !== undefined ? [m[5], { strike: true }] : [m[6] ?? m[0], {}]
     // split into words, keeping the style; spaces become their own segments
     for (const part of text.split(/(\s+)/)) if (part) segs.push({ text: /^\s+$/.test(part) ? ' ' : part, ...style })
   }
@@ -978,6 +978,53 @@ async function mathPicture($: EngineInterface, tex: string, color: string) {
   return mathPics.get(key) ?? undefined
 }
 
+// ---------- Coloured text, right to left ----------
+// A plain paragraph (no links, images, HTML or URLs) undertone draws itself, so numbers,
+// versions, durations, percentages and paths can take their own colour; one with a link stays
+// Claude Code's Markdown, where the link is clickable. Setting: colorText.
+const colorText = () => opt<unknown>('colorText', true) !== false
+const plainParagraphs = (md: string) => !/\[[^\]]*\]\(|!\[|<[a-z/!]|https?:\/\/|\\[*_`~\[]|^\s*(#|>|\||[-*+]\s|\d+[.)]\s)|^ {4}/im.test(md)
+const NUM_WORD = /^([("'\[]*)(v?\d+(?:[.,:]\d+)*(?:%|ms|µs|ns|s|m|h|d|w|x|[KMGT]i?B|[KMGT]i|px)?)([)"'\].,;:!?]*)$/
+const PATH_WORD = /^([("'\[]*)((?:~|\.{1,2})\/(?:[\w.@/-]*[\w@/-])?|\/[\w.@-]+\/(?:[\w.@/-]*[\w@/-])?)([)"'\].,;:!?]*)$/
+// Words of a run, with numbers and paths marked (inline code, bold and so on keep their style).
+function textWords(text: string): Seg[] {
+  const out: Seg[] = []
+  for (const sg of cellWords(text)) {
+    const m = !sg.code && !sg.link ? (NUM_WORD.exec(sg.text) ?? PATH_WORD.exec(sg.text)) : null
+    if (!m) { out.push(sg); continue }
+    const isNum = NUM_WORD.test(sg.text)
+    if (m[1]) out.push({ ...sg, text: m[1] })
+    out.push({ ...sg, text: m[2]!, ...(isNum ? { num: true } : { path: true }) })
+    if (m[3]) out.push({ ...sg, text: m[3] })
+  }
+  return out
+}
+// Mostly Hebrew, Arabic or another right-to-left script.
+const isRtl = (t: string) => (t.match(/[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/g) ?? []).length > (t.match(/[A-Za-z]/g) ?? []).length
+function drawWords(ui: ElementTable, th: Theme, text: string, extra: { dim?: boolean } = {}) {
+  const { Text } = ui
+  const rtl = isRtl(text)
+  return (
+    <Text dir={rtl ? 'rtl' : undefined} dimColor={extra.dim}>
+      {textWords(text).map(sg => (
+        <Text bold={sg.bold} italic={sg.italic} strikethrough={sg.strike} underline={sg.link}
+          color={sg.code ? th.user.border : sg.num ? 'warning' : sg.path ? 'permission' : th.claude.text}>{sg.text}</Text>
+      ))}
+    </Text>
+  )
+}
+function drawParagraphs(ui: ElementTable, th: Theme, md: string) {
+  const { Box } = ui
+  const paras = md.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+  return (
+    <Box flexDirection="column">
+      {paras.map((p, k) => (
+        <Box marginTop={k ? 1 : 0} justifyContent={isRtl(p) ? 'flex-end' : 'flex-start'}>{drawWords(ui, th, p.replace(/\s*\n\s*/g, ' '))}</Box>
+      ))}
+    </Box>
+  )
+}
+
 // ---------- Rich text ----------
 // undertone draws a reply's blocks itself: headings, lists and task lists, quotes and GitHub
 // alerts, code under a header, rules. Inline text still goes through Claude Code's Markdown, so
@@ -1108,7 +1155,7 @@ function flowOf(src: string): Flow | undefined {
 // What the note on your prompts tells Claude (about 130 tokens).
 const PICTURE_HINT = [
   'This terminal draws, inside your replies: GitHub-flavoured markdown (headings, nested and task lists, > [!NOTE]/[!TIP]/[!WARNING] alerts);',
-  '```mermaid flowcharts (graph LR or TD, plain nodes and edges, no subgraphs), sequenceDiagram, xychart-beta bar and line charts, and pie charts;',
+  '```mermaid flowcharts (graph LR or TD, plain nodes and edges, no subgraphs), sequenceDiagram, gantt (YYYY-MM-DD dates), xychart-beta bar and line charts, and pie charts;',
   'and ```figure blocks, drawn exactly as written, where {accent:…} {warn:…} {ok:…} {note:…} {dim:…} {strong:…} colour a run',
   '(one-column glyphs only, at most 74 columns). Use a picture when it explains better than prose; keep short answers plain.',
 ].join(' ')
@@ -1190,6 +1237,104 @@ function seqRows(seq: Seq, room: number): Seg2[][] | undefined {
   return rows
 }
 
+// Gantt charts: one bar per task on a shared date axis, sections as headers; done tasks green,
+// active amber, critical red, a milestone a diamond. Dates as YYYY-MM-DD; durations in d, h, w.
+type Gantt = { title?: string; rows: ({ section: string } | { name: string; start: number; end: number; tag?: string })[] }
+function ganttOf(src: string): Gantt | undefined {
+  const lines = src.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'))
+  if (lines[0] !== 'gantt') return undefined
+  const DAY = 86_400_000
+  const date = (x: string) => (/^\d{4}-\d{2}-\d{2}$/.test(x) ? Date.parse(x + 'T00:00:00Z') : NaN)
+  const span = (x: string) => { const m = /^(\d+(?:\.\d+)?)([dhw])$/.exec(x); return m ? Number(m[1]) * (m[2] === 'h' ? DAY / 24 : m[2] === 'w' ? 7 * DAY : DAY) : NaN }
+  const g: Gantt = { rows: [] }
+  const ends = new Map<string, number>()
+  let last = NaN
+  for (const l of lines.slice(1)) {
+    if (/^title\s/.test(l)) { g.title = l.slice(6).trim(); continue }
+    if (/^dateFormat\s/.test(l)) { if (!/YYYY-MM-DD/.test(l)) return undefined; continue }
+    if (/^(axisFormat|excludes|todayMarker|tickInterval|weekday)\b/.test(l)) continue
+    if (/^section\s/.test(l)) { g.rows.push({ section: l.slice(8).trim() }); continue }
+    const m = /^([^:]+):\s*(.*)$/.exec(l)
+    if (!m) return undefined
+    const fields = m[2]!.split(',').map(f => f.trim()).filter(Boolean)
+    const tags = fields.filter(f => /^(done|active|crit|milestone)$/.test(f))
+    const rest = fields.filter(f => !tags.includes(f))
+    let id: string | undefined, startF: string | undefined, endF: string
+    if (rest.length >= 3) [id, startF, endF] = rest as [string, string, string]
+    else if (rest.length === 2) [startF, endF] = rest as [string, string]
+    else if (rest.length === 1) endF = rest[0]!
+    else return undefined
+    const after = startF ? /^after\s+(\S+)/.exec(startF) : null
+    const start = after ? ends.get(after[1]!) ?? NaN : startF ? date(startF) : last
+    const end = Number.isFinite(date(endF)) ? date(endF) : start + span(endF)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return undefined
+    if (id) ends.set(id, end)
+    last = end
+    g.rows.push({ name: m[1]!.trim(), start, end, tag: tags.includes('milestone') ? 'milestone' : tags.find(t => t !== 'milestone') })
+  }
+  return g.rows.some(r => 'name' in r) ? g : undefined
+}
+function ganttRows(g: Gantt, room: number): Seg2[][] | undefined {
+  const tasks = g.rows.filter((r): r is { name: string; start: number; end: number; tag?: string } => 'name' in r)
+  const t0 = Math.min(...tasks.map(t => t.start)), t1 = Math.max(...tasks.map(t => t.end))
+  const labelW = Math.min(24, Math.max(...tasks.map(t => strWidth(t.name)), ...g.rows.map(r => ('section' in r ? strWidth(r.section) : 0))))
+  const barRoom = room - labelW - 2
+  if (barRoom < 12) return undefined
+  const at = (ms: number) => ((ms - t0) / Math.max(1, t1 - t0)) * barRoom
+  const day = (ms: number) => new Date(ms).toISOString().slice(5, 10)
+  const out: Seg2[][] = []
+  if (g.title) out.push([{ text: g.title, role: 'strong' }])
+  const a = day(t0), b = day(t1)
+  out.push([{ text: ' '.repeat(labelW + 2) }, { text: a + ' '.repeat(Math.max(1, barRoom - a.length - b.length)) + b, role: 'note' }])
+  out.push([{ text: ' '.repeat(labelW + 2) }, { text: '▏' + '─'.repeat(Math.max(0, barRoom - 2)) + '▏', role: 'dim' }])
+  for (const r of g.rows) {
+    if ('section' in r) { out.push([{ text: clip(r.section, labelW + 2), role: 'dim' }]); continue }
+    const name = strWidth(r.name) > labelW ? clip(r.name, labelW) : r.name + ' '.repeat(labelW - strWidth(r.name))
+    const from = Math.floor(at(r.start))
+    const ink = r.tag === 'done' ? 'ok' : r.tag === 'active' ? 'note' : r.tag === 'crit' ? 'warn' : 'accent'
+    const bar = r.tag === 'milestone' ? '◆' : barOf(Math.max(0.5, at(r.end) - from))
+    out.push([{ text: name + '  ' + ' '.repeat(from) }, { text: bar, role: ink }])
+  }
+  return out
+}
+
+// The width a table or picture draws at (undefined: it is not one, or it doesn't draw).
+function naturalWidth(part: Part, room: number, th: Theme): number | undefined {
+  if (part.kind === 'table') {
+    const table = parseTable(part.md)
+    return table ? Math.max(...layoutTable(table, room, th.tableStyle).map(l => l.reduce((n, sg) => n + strWidth(sg.text), 0))) : undefined
+  }
+  if (part.kind !== 'code' || part.open || (part.lang !== 'figure' && part.lang !== 'mermaid')) return undefined
+  let rows: Seg2[][] | undefined
+  if (part.lang === 'figure') { const fig = figureOf(part.copy, room); rows = 'lines' in fig ? fig.lines : undefined }
+  else {
+    const chart = chartOf(part.copy), flow = chart ? undefined : flowOf(part.copy), seq = chart || flow ? undefined : seqOf(part.copy), gantt = chart || flow || seq ? undefined : ganttOf(part.copy)
+    rows = chart ? chartRows(chart, room) : flow ? flowRows(flow, room) : seq ? seqRows(seq, room) : gantt ? ganttRows(gantt, room) : undefined
+    if (chart) return Math.min(room, Math.max(...(rows ?? []).map(r => strWidth(r.map(sg => sg.text).join('').trimEnd())), 30)) // bars fill what they get
+  }
+  return rows ? Math.max(...rows.map(r => strWidth(r.map(sg => sg.text).join('').trimEnd()))) : undefined
+}
+// Back-to-back tables and pictures share a row when they fit side by side; the rest stack.
+// The copy buttons above each need their width too, unless they only show on hover.
+function sideBySide(ui: ElementTable, els: any[], parts: Part[], room: number, th: Theme, hov: boolean) {
+  const { Box } = ui
+  const widths = parts.map(part => {
+    const w = naturalWidth(part, room, th)
+    return w === undefined ? undefined : Math.max(w, hov ? 0 : part.kind === 'table' ? 47 : 30)
+  })
+  const out: any[] = []
+  for (let i = 0; i < els.length;) {
+    let j = i
+    let used = widths[i] ?? Infinity
+    while (j + 1 < els.length && widths[j + 1] !== undefined && used + 3 + widths[j + 1]! <= room) { j++; used += 3 + widths[j]! }
+    if (j > i && widths[i] !== undefined) {
+      out.push(<Box columnGap={3}>{els.slice(i, j + 1).map((el, k) => <Box width={widths[i + k]!} flexShrink={0} flexDirection="column">{el}</Box>)}</Box>)
+    } else out.push(els[i])
+    i = j + 1
+  }
+  return out
+}
+
 // One rich block, or undefined to leave the part to the drawing it had before.
 function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
   const { Box, Text, Button, Markdown, Code } = ui
@@ -1212,6 +1357,7 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     if (style === 'banner' && level === 2) return <Box flexDirection="column" marginTop={i ? 1 : 0}>{words}<Text color={th.claude.border}>{'━'.repeat(Math.max(3, room))}</Text></Box>
     return <Box marginTop={i && level <= 3 ? 1 : 0}>{words}</Box>
   }
+  if (part.kind === 'md' && colorText() && plainParagraphs(part.md)) return drawParagraphs(ui, th, part.md)
   if (part.kind === 'rule') return <Text color={th.claude.border} dimColor>{'─'.repeat(Math.max(3, room))}</Text>
   if (part.kind === 'notes') {
     return (
@@ -1233,6 +1379,23 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
       : null
     const rows = items.map(it => {
       const mark = it.task ? marks[it.task === 'done' ? 1 : 0] : /^\d/.test(it.marker) ? it.marker : BULLETS[it.depth % BULLETS.length]!
+      const plain = colorText() && plainParagraphs(it.text)
+      if (isRtl(it.text)) {
+        return (
+          <Box justifyContent="flex-end" paddingRight={it.depth * 2}>
+            {it.task === 'done' ? <Text dimColor strikethrough dir="rtl">{plainCell(it.text)}</Text> : drawWords(ui, th, it.text.replace(/\s*\n\s*/g, ' '))}
+            <Text color={it.task === 'done' ? 'success' : ink}>{' ' + mark}</Text>
+          </Box>
+        )
+      }
+      if (plain && it.task !== 'done') {
+        return (
+          <Box paddingLeft={it.depth * 2}>
+            <Box width={[...mark].length + 1} flexShrink={0}><Text color={ink}>{mark}</Text></Box>
+            <Box flexGrow={1} flexShrink={1}>{drawWords(ui, th, it.text.replace(/\s*\n\s*/g, ' '))}</Box>
+          </Box>
+        )
+      }
       return (
         <Box paddingLeft={it.depth * 2}>
           <Box width={[...mark].length + 1} flexShrink={0}><Text color={it.task === 'done' ? 'success' : ink}>{mark}</Text></Box>
@@ -1294,9 +1457,11 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
     const chart = chartOf(part.copy)
     const flow = chart ? undefined : flowOf(part.copy)
     const seq = chart || flow ? undefined : seqOf(part.copy)
+    const gantt = chart || flow || seq ? undefined : ganttOf(part.copy)
     if (chart) rows = chartRows(chart, room)
     else if (flow) rows = flowRows(flow, room)
     else if (seq) rows = seqRows(seq, room)
+    else if (gantt) rows = ganttRows(gantt, room)
     else return undefined // a mermaid kind undertone does not draw: Claude Code's code block
     if (!rows) return undefined // too wide for the bubble: the source stays readable as code
   }
@@ -2243,7 +2408,7 @@ export const register: Register = (on, options) => {
               </Box>
             ))}
           </Box>
-          {parts.map((part, i) => {
+          {sideBySide($.ui.resolve(e), parts.map((part, i) => {
             if (part.kind === 'math') {
               const ui = $.ui.resolve(e)
               const Image = 'Image' in ui ? ui.Image : undefined
@@ -2295,7 +2460,7 @@ export const register: Register = (on, options) => {
                 <Markdown text={part.md} />
               </Box>
             )
-          })}
+          }), parts, room, th, hov)}
           {isLong && (
             <Button key="fold" plain dimColor label={isOpen ? '[ less ]' : `[ more · ${lines.length - FOLD_LINES} lines ]`} onPress={() => $.state.set({ ...MORE, id: foldId }, !isOpen)} />
           )}

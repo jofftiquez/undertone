@@ -85,7 +85,8 @@ test('inline $…$ math reads as italic symbols; prices stay as written', { opti
   machine(on)
   await start($)
   const ui = await mount($, 'So $E = mc^2$ and $\\alpha \\le 1$, for $5 or $10.')
-  expect(await md(ui)).toContain('So *E = mc²* and *α ≤ 1*, for $5 or $10.')
+  expect(await texts(ui)).toContain('So E = mc² and α ≤ 1, for $5 or $10.') // drawn by undertone: plain text
+  expect(((await ui.findAll({ type: 'Text' })) as any[]).some(t => t.text === 'mc²' && t.props.italic)).toBe(true)
   await ui.unmount()
 })
 
@@ -94,7 +95,7 @@ test('footnotes: superscript marks, the notes under a rule at the end', { option
   await start($)
   const ui = await mount($, 'First[^a] and second[^b].\n\n[^a]: Note A.\n[^b]: Note B.')
   const all = await md(ui)
-  expect(all).toContain('First¹ and second².')
+  expect(await texts(ui)).toContain('First¹ and second².')
   expect(all).toContain('¹ Note A.')
   expect(all).toContain('² Note B.')
   expect(((await ui.findAll({ type: 'Markdown' })) as any[]).find(m => m.props.text === '² Note B.')?.props.dimColor).toBe(true)

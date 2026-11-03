@@ -68,9 +68,9 @@ test('lists: numbers kept, • and ◦ by depth, item text through Markdown', { 
   const ui = await mount($)
   const marks = (await all(ui, 'Text')).map(t => t.text)
   for (const m of ['1.', '2.', '•', '◦']) expect(marks).toContain(m)
-  const md = (await all(ui, 'Markdown')).map(m => m.props.text)
-  expect(md).toContain('Merge the branch')
-  expect(md).toContain('the weekly run too')
+  const words = (await all(ui, 'Text')).map(t => t.text)
+  expect(words).toContain('Merge the branch')
+  expect(words).toContain('the weekly run too')
   await ui.unmount()
 })
 
@@ -83,7 +83,7 @@ test('task lists: [✓] in green with the item dimmed and struck through, [ ] op
   const done = texts.find(t => t.text === 'Bump the version')
   expect([done?.props.strikethrough, done?.props.dimColor]).toEqual([true, true])
   expect(texts.some(t => t.text === '[ ]')).toBe(true)
-  expect((await all(ui, 'Markdown')).map(m => m.props.text)).toContain('Publish')
+  expect((await all(ui, 'Text')).map(t => t.text)).toContain('Publish')
   await ui.unmount()
 })
 
