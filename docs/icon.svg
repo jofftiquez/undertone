@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>undertone</title>
+  <rect width="256" height="256" rx="56" fill="#262120"/>
+  <path fill="#EDE6DA" d="M102,30 H202 A18,18 0 0 1 220,48 V108 L204,92 H102 A18,18 0 0 1 84,74 V48 A18,18 0 0 1 102,30 Z"/>
+  <circle cx="42" cy="122" r="6" fill="#5F5650"/>
+  <rect x="56" y="116" width="92" height="12" rx="6" fill="#5F5650"/>
+  <path fill="#D97757" fill-rule="evenodd" d="M54,152 H154 A18,18 0 0 1 172,170 V196 A18,18 0 0 1 154,214 H52 L36,230 V170 A18,18 0 0 1 54,152 Z M70,162 Q74,179 91,183 Q74,187 70,204 Q66,187 49,183 Q66,179 70,162 Z"/>
+</svg>

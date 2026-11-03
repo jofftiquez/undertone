@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.svg" width="96" alt="undertone icon"></p>
+
 <h1 align="center">undertone</h1>
 
 <p align="center"><strong>The conversation, without the noise.</strong></p>
@@ -163,7 +165,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 178 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 180 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 The code lives in `hooks/register.tsx`; the state contract in `types/index.d.ts`.
