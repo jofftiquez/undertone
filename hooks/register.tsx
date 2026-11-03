@@ -436,6 +436,8 @@ async function switchSession($: EngineInterface, sid: string) {
   await $.state.set(SHOW_OLD, null)
   await $.state.set(REACTIONS, ((await $.store.get('reactions:' + sid).catch(() => undefined)) as Record<string, string[]> | undefined) ?? null)
   await $.state.set(LAST_PROMPT, null)
+  tally = undefined
+  await $.state.set(TURN, null)
 }
 async function indexTranscriptInner($: EngineInterface) {
   const sid = await $.session.id()
@@ -469,10 +471,13 @@ async function indexTranscriptInner($: EngineInterface) {
   const n = (await themeOf($)).foldTurns
   const hidden = n > 0 ? Math.max(0, idx.prompts.length - n) : 0
   await $.state.set(CUTOFF, hidden ? { ms: idx.prompts[hidden]!, hidden } : null)
-  const saved: Record<string, { path: string }> = {}
+  const saved: Record<string, { path: string; w?: number; h?: number }> = {}
   for (const [n, at] of Object.entries(idx.images)) {
     const path = await saveImage($, n, at).catch(() => undefined)
-    if (path) { saved[n] = { path }; at.data = '' } // on disk now; don't hold the base64 too
+    if (!path) continue
+    if (at.size === undefined) at.size = /png/.test(at.mediaType) ? pngSize(at.data) ?? null : null // before the base64 goes
+    saved[n] = { path, ...(at.size ?? {}) }
+    at.data = '' // on disk now; don't hold the base64 too
   }
   await $.state.set(IMAGES, saved)
 }
@@ -583,9 +588,53 @@ async function openInEditor($: EngineInterface, path: string) {
   if (r.exitCode !== 0) $.ui.toast(r.exitCode === 127 ? 'No text editor found: use Copy path' : 'Could not open the file')
 }
 
+// ---------- Inline images ----------
+// A PNG's size from its header: IHDR's width and height, big-endian, at bytes 16 to 23.
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+function pngSize(b64: string): { w: number; h: number } | undefined {
+  const bytes: number[] = []
+  let buf = 0, bits = 0
+  for (const ch of b64.slice(0, 44)) {
+    const v = B64.indexOf(ch)
+    if (v < 0) break
+    buf = ((buf << 6) | v) & 0xffffff; bits += 6
+    if (bits >= 8) { bits -= 8; bytes.push((buf >> bits) & 255) }
+  }
+  if (bytes.length < 24 || bytes[0] !== 0x89 || bytes[1] !== 0x50) return undefined
+  const u32 = (o: number) => ((bytes[o]! << 24) | (bytes[o + 1]! << 16) | (bytes[o + 2]! << 8) | bytes[o + 3]!) >>> 0
+  const w = u32(16), h = u32(20)
+  return w && h ? { w, h } : undefined
+}
+// Cells for a w×h picture at most maxCols × maxRows; a cell is about twice as tall as wide.
+function imageCells(w: number, h: number, maxCols: number, maxRows: number) {
+  let columns = Math.max(4, Math.min(maxCols, Math.round(w / 10)))
+  let rows = Math.max(1, Math.round((columns * h) / w / 2))
+  if (rows > maxRows) { rows = maxRows; columns = Math.max(4, Math.min(maxCols, Math.round((rows * 2 * w) / h))) }
+  return { columns: Math.min(columns, 255), rows: Math.min(rows, 255) }
+}
+const inlineImages = () => opt<unknown>('inlineImages', true) !== false
+// A PNG Claude read, by path. ponytail: sized once per path; a file rewritten in place keeps its old size.
+const pngSizes = new Map<string, { w: number; h: number } | null>()
+async function pngFileSize($: EngineInterface, path: string) {
+  if (!pngSizes.has(path)) {
+    const bytes = await $.fs.read(path, { as: 'bytes' }).catch(() => undefined)
+    pngSizes.set(path, bytes && typeof bytes === 'object' && 'base64' in bytes ? pngSize(bytes.base64) ?? null : null)
+  }
+  return pngSizes.get(path) ?? undefined
+}
+
+// ---------- All green ----------
+// A test run's verdict from its summary line: "12 passed", "3 failed", "test result: ok.",
+// Go's "ok  pkg", "FAIL". Anything else is not a test run.
+function testVerdict(text: string): 'pass' | 'fail' | undefined {
+  if (/\b[1-9]\d* (failed|failing|failures?|fail)\b/i.test(text) || /^(FAIL|FAILED)\b/m.test(text) || /test result: FAILED/.test(text)) return 'fail'
+  if (/\b\d+ (passed|passing|pass)\b/i.test(text) || /test result: ok\./.test(text) || /^ok\s+\S+\s/m.test(text)) return 'pass'
+  return undefined
+}
+
 // "[Image #N]" in a prompt's text pairs, in order, with the image blocks of that
 // row; a mid-turn message (queued_command attachment) names its ids outright.
-type ImageAt = { mediaType: string; data: string }
+type ImageAt = { mediaType: string; data: string; size?: { w: number; h: number } | null }
 function blocksOfRow(row: any): any[] {
   const c = row?.message?.content ?? row?.attachment?.prompt
   return Array.isArray(c) ? c : []
@@ -658,11 +707,15 @@ async function rowOf($: EngineInterface, call: Call, columns = 80) {
   const line = (t ? t + '  ' : '') + clip(describe(call), Math.max(20, columns - 16))
   const inp = (call.input ?? {}) as Record<string, unknown>
   const file = typeof inp.file_path === 'string' ? inp.file_path : typeof inp.notebook_path === 'string' ? inp.notebook_path : undefined
-  return { id, isOpen, glyph, color, line, file, blocks: isOpen ? blocksOf(call) : [] }
+  // A PNG Claude read shows as a picture under its row.
+  const size = call.tool === 'Read' && file && /\.png$/i.test(file) && !call.isRunning && !call.isErrored && inlineImages() ? await pngFileSize($, file) : undefined
+  const preview = size && file ? { file, ...imageCells(size.w, size.h, Math.max(10, columns - 10), 12) } : undefined
+  return { id, isOpen, glyph, color, line, file, preview, blocks: isOpen ? blocksOf(call) : [] }
 }
 
 function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType<typeof rowOf>>[]) {
   const { Box, Text, Button, Code } = ui
+  const Image = 'Image' in ui ? ui.Image : undefined // the terminal draws pictures; other surfaces skip them
   return (
     <Box flexDirection="column" paddingLeft={3}>
       {rows.map((r, n) => (
@@ -673,6 +726,11 @@ function drawRows($: EngineInterface, ui: ElementTable, rows: Awaited<ReturnType
             <Text dimColor>{r.line}</Text>
             {r.file && <Button key={'f' + n} plain dimColor label={' ↗ ' + clip(r.file.split(/[\\/]/).pop() ?? r.file, 40)} onPress={() => viewFile($, r.file!)} />}
           </Box>
+          {r.preview && Image && (
+            <Box paddingLeft={6}>
+              <Image key={'pic' + n} source={{ file: r.preview.file, format: 'png' }} columns={r.preview.columns} rows={r.preview.rows} alt={'🖼 ' + (r.preview.file.split(/[\\/]/).pop() ?? 'image')} />
+            </Box>
+          )}
           {r.blocks.map((b, k) => (
             <Box paddingLeft={6}>
               {'text' in b ? (
@@ -712,7 +770,7 @@ function charWidth(cp: number) {
     (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff) ||
     (cp >= 0x20000 && cp <= 0x3fffd)) return 2
   if ((cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x25a0 && cp <= 0x25ff) || (cp >= 0x2605 && cp <= 0x2606) || (cp >= 0x2660 && cp <= 0x2667) ||
-    cp === 0x203b || cp === 0x2614 || cp === 0x2615 || (cp >= 0x2648 && cp <= 0x2653) || cp === 0x26a1 || (cp >= 0x26aa && cp <= 0x26ab) || cp === 0x2705 || cp === 0x274c || cp === 0x2b50) return 2
+    cp === 0x203b || cp === 0x2614 || cp === 0x2615 || (cp >= 0x2648 && cp <= 0x2653) || cp === 0x26a1 || (cp >= 0x26aa && cp <= 0x26ab) || cp === 0x2705 || cp === 0x270a || cp === 0x270b || cp === 0x2728 || cp === 0x274c || cp === 0x274e || (cp >= 0x2753 && cp <= 0x2755) || cp === 0x2757 || (cp >= 0x2795 && cp <= 0x2797) || cp === 0x27b0 || cp === 0x27bf || cp === 0x2b50) return 2
   return 1
 }
 const strWidth = (t: string) => { let w = 0; for (const ch of t) w += charWidth(ch.codePointAt(0)!); return w }
@@ -1222,8 +1280,82 @@ async function logSession($: EngineInterface, patch: (log: SessionLog) => Sessio
   await $.store.set('sessions', patch(log).slice(-50)).catch(() => {})
 }
 
+// ---------- /undertone-wrapped ----------
+// A recap of this session, as text: the system card frames it with a copy button.
+async function wrappedText($: EngineInterface) {
+  const got = await $.session.messages().catch(() => undefined)
+  const msgs = got && !('deny' in got) ? got : []
+  const prompts = msgs.filter(m => m.role === 'user' && !m.toolResults?.length && m.text.trim()).length
+  const turns = (await $.state.get(TURNS)).value ?? {}
+  // Every finished turn's per-tool counts, and the running turn's (its summary isn't written yet).
+  const counts: Record<string, number> = {}
+  const running = (await $.state.get(TURN)).value
+  const summed = new Set(Object.values(turns))
+  for (const t of [...summed, ...(running ? [running] : [])]) for (const [k, n] of Object.entries(t.byTool ?? {})) counts[k] = (counts[k] ?? 0) + n
+  const tools = Object.values(counts).reduce((a, b) => a + b, 0)
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${k} ${n}`).join(' · ')
+  const agents = Object.values(turns).reduce((a, t) => a + (t.agents ?? 0), 0)
+  const longest = Math.max(0, ...Object.keys(turns).map(Number))
+  const green = Object.values(turns).filter(t => t.tests === 'pass').length
+  const usd = (await $.session.usage().catch(() => undefined))?.cost?.usd
+  const hours = new Map<number, number>()
+  if (offsetMin !== undefined) for (const ms of idx.prompts) { const h = new Date(ms + offsetMin * 60_000).getUTCHours(); hours.set(h, (hours.get(h) ?? 0) + 1) }
+  const busiest = [...hours].sort((a, b) => b[1] - a[1])[0]
+  const reactions = Object.values((await $.state.get(REACTIONS)).value ?? {}).flat()
+  const pins = Object.keys((await $.state.get(PINS)).value ?? {}).length
+  const hour12 = (h: number) => `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`
+  const lines = [
+    '✨ undertone wrapped · this session',
+    '',
+    `  ${prompts} prompt${prompts === 1 ? '' : 's'} · ${tools} tool call${tools === 1 ? '' : 's'}${agents ? ` · ${agents} agent${agents === 1 ? '' : 's'}` : ''}${usd !== undefined ? ` · $${usd.toFixed(2)}` : ''}`,
+  ]
+  if (top) lines.push(`  Top tools      ${top}`)
+  if (busiest) lines.push(`  Busiest hour   ${hour12(busiest[0])} (${busiest[1]} prompt${busiest[1] === 1 ? '' : 's'})`)
+  if (longest) lines.push(`  Longest turn   ${fmtDuration(longest)}`)
+  if (green) lines.push(`  All green      ${green} turn${green === 1 ? '' : 's'} ✨`)
+  const tally = REACTION_SET.map(r => [r, reactions.filter(x => x === r).length] as const).filter(([, n]) => n).map(([r, n]) => `${r} ${n}`).join(' · ')
+  if (tally) lines.push(`  Reactions      ${tally}`)
+  if (pins) lines.push(`  Pins           ${pins}`)
+  return lines.join('\n')
+}
+
+// ---------- /undertone-find ----------
+// Messages that contain the words, with their time and the words in context.
+async function findText($: EngineInterface, query: string) {
+  const q = query.trim()
+  if (!q) return 'Usage: /undertone-find <words>'
+  const got = await $.session.messages().catch(() => undefined)
+  if (!got || 'deny' in got) return 'Could not read this conversation.'
+  const now = await $.clock.now()
+  const hits = got.filter(m => !(m.role === 'user' && m.toolResults?.length) && m.text.toLowerCase().includes(q.toLowerCase()))
+  if (!hits.length) return `No messages contain "${q}".`
+  const out = [`${hits.length} message${hits.length === 1 ? ' contains' : 's contain'} "${q}"${hits.length > 20 ? ' (latest 20)' : ''}:`, '']
+  for (const m of hits.slice(-20)) {
+    const flat = m.text.replace(/\s+/g, ' ').trim()
+    const at = flat.toLowerCase().indexOf(q.toLowerCase())
+    const snip = (at > 40 ? '…' : '') + flat.slice(Math.max(0, at - 40), at + q.length + 60) + (at + q.length + 60 < flat.length ? '…' : '')
+    const ms = idx.times[textKey(m.text)] ?? (await $.state.get({ ...STAMPS, id: textKey(m.text) })).value
+    const when = ms && offsetMin !== undefined ? fmt(ms, now, offsetMin) + ' · ' : ''
+    out.push(`• ${when}${m.role === 'user' ? 'You' : 'Claude'}: ${snip}`)
+  }
+  return out.join('\n')
+}
+
+// The running turn's counts. Tool calls that run at the same time don't see each other's state
+// writes, so the tally lives here, where every call sees it at once, and is copied to state for
+// the rows that draw it and for a reload mid-turn (the first call after one picks it back up).
+type Tally = { tools: number; failed: number; usdStart: number | null; agents?: number; agentTools?: number; tests?: 'pass' | 'fail'; byTool?: Record<string, number> }
+let tally: Tally | undefined
+async function bump($: EngineInterface, change: (t: Tally) => Tally) {
+  if (!tally) { const saved = (await $.state.get(TURN)).value; tally ??= saved ?? { tools: 0, failed: 0, usdStart: null } }
+  tally = change(tally) // no await between reading and writing the tally
+  const snap = tally
+  await $.state.set(TURN, snap)
+  await $.state.set(TURN_TOOLS, snap.tools)
+}
+
 // ---------- Turn summary ----------
-type TurnSummary = { tools: number; failed: number; inTok: number; outTok: number; usd?: number; endMs: number; agents?: number; agentTools?: number }
+type TurnSummary = { tools: number; failed: number; inTok: number; outTok: number; usd?: number; endMs: number; agents?: number; agentTools?: number; tests?: 'pass' | 'fail'; byTool?: Record<string, number> }
 const kTok = (n: number) => (n >= 1000 ? (n / 1000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(n))
 
 export const register: Register = (on, options) => {
@@ -1236,6 +1368,8 @@ export const register: Register = (on, options) => {
       $.command.register({ name: 'undertone-pins', description: 'List pinned (★) chat bubbles' }),
       $.command.register({ name: 'undertone-doctor', description: 'undertone: show what the time index holds' }),
       $.command.register({ name: 'undertone-export', description: 'Export this chat with timestamps to a Markdown file', argumentHint: '[path]' }),
+      $.command.register({ name: 'undertone-wrapped', description: 'A recap of this session: prompts, tools, busiest hour, longest turn' }),
+      $.command.register({ name: 'undertone-find', description: 'Find messages in this chat that contain some words', argumentHint: '<words>' }),
     ]).catch(() => {})
     const sid = await $.session.id()
     const savedPins = ((await $.store.get('pins:' + sid).catch(() => undefined)) as Record<string, Pin> | undefined)
@@ -1257,6 +1391,8 @@ export const register: Register = (on, options) => {
     if (!known) await logSession($, log => [...log, { id: sid, start: sessionStart! }])
     // A reload places the same id again, which answers the row already standing.
     if (opt<unknown>('welcome', true) !== false) await $.ui.place({ id: 'welcome' }).catch(() => undefined)
+    // The desktop app's wallpaper, in the theme's colours; other surfaces draw none.
+    if (opt<string>('wallpaper', 'off') === 'theme') await $.ui.backdrop({ id: 'wallpaper', glass: { blur: 14, opacity: 0.55 } }).catch(() => undefined)
     return next(e)
   })
 
@@ -1289,7 +1425,8 @@ export const register: Register = (on, options) => {
     if (!isYours(e.origin)) return next(e)
     await $.state.set(LAST_PROMPT, { key: textKey(e.text), read: false })
     turnAgents.clear()
-    await $.state.set(TURN, { tools: 0, failed: 0, agents: 0, agentTools: 0, usdStart: (await $.session.usage().catch(() => undefined))?.cost?.usd ?? null })
+    tally = { tools: 0, failed: 0, agents: 0, agentTools: 0, usdStart: (await $.session.usage().catch(() => undefined))?.cost?.usd ?? null }
+    await $.state.set(TURN, tally)
     await $.state.set(TURN_TOOLS, 0)
     return next(e)
   })
@@ -1298,13 +1435,15 @@ export const register: Register = (on, options) => {
     if (callId) await $.state.set({ ...AGENT_RUN, id: callId }, { status: e.isAborted ? 'stopped' : 'done' })
     if (!e.agentId) {
       const usd = (await $.session.usage().catch(() => undefined))?.cost?.usd
-      const cur = (await $.state.get(TURN)).value ?? { tools: 0, failed: 0, usdStart: null }
+      const cur = tally ?? (await $.state.get(TURN)).value ?? { tools: 0, failed: 0, usdStart: null }
       const turnTools = cur.tools, turnFailed = cur.failed, turnUsdStart = cur.usdStart ?? undefined
       const u = e.usage
       const summary: TurnSummary = {
         tools: turnTools,
         failed: turnFailed,
         ...(cur.agents ? { agents: cur.agents, agentTools: cur.agentTools ?? 0 } : {}),
+        ...(cur.tests ? { tests: cur.tests } : {}),
+        ...(cur.byTool ? { byTool: cur.byTool } : {}),
         endMs: await $.clock.now(),
         inTok: u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0,
         outTok: u ? u.output_tokens : 0,
@@ -1313,6 +1452,8 @@ export const register: Register = (on, options) => {
       const turns = { ...((await $.state.get(TURNS)).value ?? {}), [String(Math.round(e.durationMs))]: summary }
       // Keep the latest 200; older rows sit far up the fold anyway.
       await $.state.set(TURNS, Object.fromEntries(Object.entries(turns).sort((a, b) => b[1].endMs - a[1].endMs).slice(0, 200)))
+      // Its per-tool counts now live in the summary; calls after the turn start a fresh tally.
+      if (cur.byTool) await bump($, t => ({ ...t, byTool: {} }))
       const longMs = Math.max(1, Number(opt('notifyAfterSeconds', 30))) * 1000
       if (e.durationMs > longMs && !e.isAborted) {
         const msg = `Finished in ${fmtDuration(e.durationMs)} · ${turnTools} tool${turnTools === 1 ? '' : 's'}${turnFailed ? ` · ${turnFailed} failed` : ''}`
@@ -1326,24 +1467,25 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     await $.state.set({ ...STAMPS, id: e.tool_use_id }, await $.clock.now())
     if (e.agentId) { // an agent's own call: counted apart from the main loop's
-      const cur = (await $.state.get(TURN)).value
-      if (cur) await $.state.set(TURN, { ...cur, agentTools: (cur.agentTools ?? 0) + 1 })
+      await bump($, t => ({ ...t, agentTools: (t.agentTools ?? 0) + 1 }))
       return next(e)
     }
     await markRead($)
-    const cur = (await $.state.get(TURN)).value ?? { tools: 0, failed: 0, usdStart: null }
-    await $.state.set(TURN, { ...cur, tools: cur.tools + 1, ...(isAgentTool(e.tool) ? { agents: (cur.agents ?? 0) + 1 } : {}) })
-    await $.state.set(TURN_TOOLS, cur.tools + 1)
+    // Per-tool counts ride in the tally too (for /undertone-wrapped).
+    await bump($, t => ({ ...t, tools: t.tools + 1, byTool: { ...t.byTool, [e.tool]: (t.byTool?.[e.tool] ?? 0) + 1 }, ...(isAgentTool(e.tool) ? { agents: (t.agents ?? 0) + 1 } : {}) }))
     const r = await next(e)
     const launched = isAgentTool(e.tool) && 'result' in r ? (r.result as { isAsync?: boolean; agentId?: string } | undefined) : undefined
     if (launched?.isAsync && launched.agentId) {
       agentCalls.set(launched.agentId, e.tool_use_id)
       await $.state.set({ ...AGENT_RUN, id: e.tool_use_id }, { status: 'background' })
     }
-    if ('deny' in r || r.isError) {
-      const now = (await $.state.get(TURN)).value ?? { tools: 1, failed: 0, usdStart: null }
-      await $.state.set(TURN, { ...now, failed: now.failed + 1 })
+    // A test run's verdict: the turn's last one decides the ✨ all green badge.
+    if (/^(Bash|PowerShell)$/.test(e.tool) && 'result' in r) {
+      const out = r.result as { stdout?: string; stderr?: string } | string | undefined
+      const verdict = testVerdict(typeof out === 'string' ? out : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`)
+      if (verdict) await bump($, t => ({ ...t, tests: verdict }))
     }
+    if ('deny' in r || r.isError) await bump($, t => ({ ...t, failed: t.failed + 1 }))
     return r
   })
   on('session.measure', async ($, e, next) => {
@@ -1399,6 +1541,8 @@ export const register: Register = (on, options) => {
       return <Text dimColor>{'   ◦ ' + who + '  ' + clip(e.props.text.split('\n')[0] ?? '', Math.max(20, (e.viewport?.columns ?? 80) - who.length - 10))}</Text>
     }
     const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const Image = 'Image' in ui ? ui.Image : undefined
     const th = await themeOf($)
     const t = await timeOf($, e.requestId, e.props.text, th.preciseTime)
     // [Image #N] → a button that opens the saved copy in the OS image viewer.
@@ -1454,6 +1598,12 @@ export const register: Register = (on, options) => {
             {slashParts(e.props.text, new Set((await $.command.list().catch(() => [])).map(c => c.name)))
               .map(p => (p.cmd ? <Text bold color={readableOn(th.user.fill, th.claude.border)}>{p.text}</Text> : p.text))}
           </Text>
+          {Image && inlineImages() && imageNos.map(n => {
+            const img = saved[n]
+            return img?.w && img.h
+              ? <Image key={'pic' + n} source={{ file: img.path, format: 'png' }} {...imageCells(img.w, img.h, w - chrome(th.user, th.padding), 16)} alt={'🖼 Image #' + n} />
+              : null
+          })}
           {imageNos.length > 0 && (
             <Box flexWrap="wrap" columnGap={1}>
               {imageNos.map(n => {
@@ -1642,6 +1792,7 @@ export const register: Register = (on, options) => {
       <Text>
         <Text dimColor>{bits.join(' · ')}</Text>
         {failed > 0 && <Text color="error">{` · ${failed} failed`}</Text>}
+        {t?.tests === 'pass' && <Text color="success">{' · ✨ all green'}</Text>}
       </Text>
     )
   })
@@ -1661,6 +1812,8 @@ export const register: Register = (on, options) => {
     return { text: `Theme: ${want} — ${THEMES[want]!.desc}` }
   })
   on('command.run', { command: 'undertone-pins' }, async $ => ({ text: await pinsText($) }))
+  on('command.run', { command: 'undertone-wrapped' }, async $ => ({ text: await wrappedText($) }))
+  on('command.run', { command: 'undertone-find' }, async ($, e) => ({ text: await findText($, e.args) }))
   on('command.run', { command: 'undertone-export' }, async ($, e) => ({ text: await exportChat($, e.args).catch(err => 'Export failed: ' + String(err)) }))
 
   // /undertone-pins output: a header, then each pin as time · sender (theme colour) over an indented snippet.
@@ -1845,15 +1998,18 @@ export const register: Register = (on, options) => {
     const bad = e.props.isErrored
     const name = (bad ? '✗ ' : '') + '/' + e.props.command + (e.props.args.trim() ? ' ' + e.props.args.trim() : '')
     const t = await timeOf($, e.requestId, undefined, false)
-    const widest = Math.max(strWidth(name) + 12, ...e.props.text.split('\n').map(strWidth), strWidth(t))
+    // Claude Code heads a plugin command's output with "<plugin>: "; the card's header already names it.
+    const owner = (await $.command.list().catch(() => [])).find(c => c.name === e.props.command)?.plugin
+    const text = owner && e.props.text.startsWith(owner + ': ') ? e.props.text.slice(owner.length + 2) : e.props.text
+    const widest = Math.max(strWidth(name) + 12, ...text.split('\n').map(strWidth), strWidth(t))
     return (
       <Box paddingLeft={2}>
         <Box width={Math.min(cols - 4, widest + 4)} flexDirection="column" borderStyle="round" borderColor={bad ? 'error' : 'subtle'} paddingX={1}>
           <Box justifyContent="space-between">
             <Text bold color={bad ? 'error' : readableOn(undefined, th.claude.border)}>{name}</Text>
-            <Button key="copy-out" plain dimColor label="[ copy ]" onPress={p => copyText($, e.props.text, 'output', p.surface)} />
+            <Button key="copy-out" plain dimColor label="[ copy ]" onPress={p => copyText($, text, 'output', p.surface)} />
           </Box>
-          <Text>{e.props.text}</Text>
+          <Text>{text}</Text>
           {t && <Box justifyContent="flex-end"><Text dimColor>{t}</Text></Box>}
         </Box>
       </Box>
@@ -1884,6 +2040,21 @@ export const register: Register = (on, options) => {
     const { Text } = $.ui.resolve(e)
     const line = await welcomeLine($)
     return line ? <Text dimColor>{'  ✻ ' + line}</Text> : next(e)
+  })
+
+  // The wallpaper behind the desktop app's conversation: the theme's surface, with a soft block of
+  // each side's colour in two corners.
+  on('ui.render', { component: 'Backdrop' }, async ($, e, next) => {
+    if (e.props.plugin !== 'undertone' || e.props.id !== 'wallpaper') return next(e)
+    const { Box } = $.ui.resolve(e)
+    const th = await themeOf($)
+    const surface = SURFACE[th.name]?.surface ?? th.claude.fill ?? '#1E1E2E'
+    return (
+      <Box flexDirection="column" flexGrow={1} backgroundColor={surface} justifyContent="space-between">
+        <Box justifyContent="flex-end"><Box width={24} height={8} backgroundColor={th.user.fill ?? th.user.border} /></Box>
+        <Box justifyContent="flex-start"><Box width={24} height={8} backgroundColor={th.claude.fill ?? th.claude.border} /></Box>
+      </Box>
+    )
   })
 
   // Footer mode labels as pills in the theme's chip colour.
@@ -1922,6 +2093,8 @@ export const register: Register = (on, options) => {
         '  /undertone-theme [name]   theme gallery, or switch theme (reset = /config default)',
         '  /undertone-pins           pinned messages',
         '  /undertone-export [path]  save the chat as Markdown with timestamps',
+        '  /undertone-wrapped        a recap of this session',
+        '  /undertone-find <words>   messages that contain the words, with their times',
         '  /undertone-doctor         what the time index holds (for bug reports)',
         '',
         'Every setting: /config → undertone',

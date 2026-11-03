@@ -106,6 +106,21 @@ test('a pasted image becomes a chip that opens the saved file', async ($, on) =>
   await ui.unmount()
 })
 
+test('a pasted PNG is drawn as a picture in your bubble, above its chip', async ($, on) => {
+  // A real PNG header (800×400) so undertone can size the picture.
+  const head = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 3, 0x20, 0, 0, 1, 0x90, 8, 6, 0, 0, 0]
+  const png = btoa(String.fromCharCode(...head))
+  engine(on, { transcript: TRANSCRIPT.replace('iVBORw0KGgo=', png) })
+  await start($)
+  const ui = await $.ui.mount(prompt('p2', 'look [Image #1]'))
+  const pic = (await ui.findAll({ type: 'Image' }))[0] as any
+  expect(pic?.props.source.format).toBe('png')
+  expect(pic?.props.source.file).toMatch(/undertone-501\/sess-123-1\.png$/)
+  expect(pic?.props.rows).toBe(Math.round(pic?.props.columns / 4)) // 2:1 picture, cells twice as tall as wide
+  expect(await ui.find({ key: 'img1' })).toBeDefined() // the chip stays, to open it full size
+  await ui.unmount()
+})
+
 test('pasted images are saved to a private, per-user folder', async ($, on) => {
   const { runs } = engine(on, { transcript: TRANSCRIPT })
   await start($)

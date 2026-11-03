@@ -98,6 +98,14 @@ table.
 - **Welcome**: `✻ Good morning, Pogi · 3rd session today · last one ended 2h ago` when a session starts.
 - **Footer pills** for mode labels, and a quieter run-in-background hint: `↧ ctrl+b · background` (or hidden).
 
+### Show-off
+
+- **Pictures inline**: a pasted PNG screenshot shows as a picture in your bubble, and a PNG Claude reads shows under its row, sized to its shape. Needs a terminal that draws pictures (kitty, Ghostty, iTerm2 3.5+); elsewhere you get the chip.
+- **✨ all green**: when a turn's last test run passed (`12 passed`, `test result: ok.`, Go's `ok`), its summary line says so.
+- **`/undertone-wrapped`**: a recap of the session: prompts, tool calls, top tools, busiest hour, longest turn, all-green turns, reactions, cost.
+- **`/undertone-find <words>`**: the messages that contain the words, with their times and the words in context.
+- **Wallpaper** (Claude desktop app only): a background in the theme's colours, if you turn it on.
+
 ### Small things that add up
 
 - **Slash commands stand out**: a command you mention in a prompt (`try /undertone-theme`) is drawn bold in Claude's colour. Only real commands count, so paths like `/tmp/x` stay plain. (A command you run on its own is drawn by Claude Code, not as a bubble.)
@@ -148,6 +156,8 @@ breaking the bubble.
 | `/undertone-theme [name]` | Theme gallery, or switch theme; `reset` returns to the `/config` choice |
 | `/undertone-pins` | Your pinned messages, in time order |
 | `/undertone-export [path]` | Save the chat as Markdown with timestamps (default: `~/Downloads`) |
+| `/undertone-wrapped` | A recap of this session |
+| `/undertone-find <words>` | Messages that contain the words, with their times |
 | `/undertone-doctor` | What the timestamp index holds, for bug reports |
 
 ## Settings
@@ -170,6 +180,8 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | Light by day, dark by night | off | with *Daytime hours* `7-19` |
 | Welcome line | on | |
 | Run-in-background hint | `compact` | `hidden`, `engine` |
+| Pictures inline | on | |
+| Desktop app wallpaper | `off` | `theme` |
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
 
@@ -193,7 +205,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 213 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 227 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request. The type check needs the engine types Claude Code

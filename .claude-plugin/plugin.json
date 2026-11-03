@@ -334,6 +334,22 @@
         "hidden",
         "engine"
       ]
+    },
+    "inlineImages": {
+      "type": "boolean",
+      "title": "Pictures inline",
+      "description": "Pasted PNG screenshots, and PNGs Claude reads, drawn as pictures where the terminal can (kitty, Ghostty, iTerm2 3.5+); elsewhere the chip stays",
+      "default": true
+    },
+    "wallpaper": {
+      "type": "string",
+      "title": "Desktop app wallpaper",
+      "description": "A background in the theme's colours behind the conversation, in the Claude desktop app only",
+      "default": "off",
+      "options": [
+        "off",
+        "theme"
+      ]
     }
   }
 }
