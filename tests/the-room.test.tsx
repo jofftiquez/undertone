@@ -71,7 +71,19 @@ test('11. a message from an agent is its own bubble with its name', async ($, on
   const all = await texts(ui)
   expect(all.some(t => t.startsWith('◆ code-reviewer'))).toBe(true)
   expect(all).toContain('Review done: 2 nits.')
+  expect(all).toContain('session') // not one of this session's agents
   await ui.unmount()
+})
+
+test('11. a message from one of this session\'s agents is tagged subagent', async ($, on) => {
+  machine(on, { agents: () => [{ id: 'ag2', type: 'general-purpose', teammateId: 'scout@demo', description: 'count', status: 'running' }] })
+  await start($)
+  const ui = await mount($, 'UserMessage', { text: 'Found 16.', origin: { kind: 'peer' }, from: { name: 'scout' }, isExpanded: false })
+  expect(await texts(ui)).toContain('subagent')
+  await ui.unmount()
+  const ch = await mount($, 'UserMessage', { text: 'hi', origin: { kind: 'channel', server: 'slack' }, from: { name: 'ana' }, isExpanded: false }, 'r2')
+  expect(await texts(ch)).toContain('slack')
+  await ch.unmount()
 })
 
 test('11. a finished agent task is a chip with the agent\'s type', async ($, on) => {

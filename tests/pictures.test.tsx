@@ -282,3 +282,29 @@ test('C4: people and systems as boxes with their kind, relations in words', { op
   expect(all).toContain('  chats with (terminal)')
   await ui.unmount()
 })
+
+test('figure: {ok}text{/ok} reads as {ok:text}; a stray tag is broken markup', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, fence('figure', 'a {ok}200 OK{/ok} and {warn:✗}'))
+  const all = await texts(ui)
+  expect(all.find(t => t.text === '200 OK')?.props.color).toBe('success')
+  expect(all.some(t => t.text === 'a 200 OK and ✗')).toBe(true)
+  await ui.unmount()
+  const bad = await mount($, fence('figure', 'a {ok}open'))
+  expect((await lines(bad)).some(t => /figure line 1: role markup/.test(t))).toBe(true)
+  await bad.unmount()
+})
+
+test('in a narrow pane the note names its width, so pictures fit', async ($, on) => {
+  const { sent } = machine(on)
+  await start($)
+  const at = async (columns: number) => {
+    const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'AssistantMessage', requestId: 'n' + columns, props: { text: 'hi', isFirstOfReply: true }, viewport: { columns, rows: 40 } } as any)
+    await ui.unmount()
+    await $.prompt.submit({ text: 'draw it', wait: false, origin: { kind: 'composer' } })
+    return sent.at(-1)?.context?.find(c => /```figure blocks/.test(c)) ?? ''
+  }
+  expect(await at(70)).toMatch(/only 70 columns wide: keep diagrams narrow .* figures at most \d+ columns/)
+  expect(await at(120)).not.toMatch(/columns wide/)
+})

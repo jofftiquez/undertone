@@ -832,16 +832,53 @@ async function copyRich($: EngineInterface, html: string, plain: string, what: s
   else { await copyText($, plain, what + ' as text', surface); if (r.exitCode === 127) $.ui.toast('A rich copy on Linux needs CopyQ running; copied text') }
 }
 // The drawn art as a PNG on the clipboard, set in the OS's monospaced font.
-async function copyPng($: EngineInterface, art: string, th: Theme, what: string, surface?: RenderSurface) {
+// A run of a PNG copy, styled as the screen draws it.
+type Run = { text: string; color?: string; bold?: boolean; dimColor?: boolean }
+// Claude Code's theme keys as [dark, light] hex: near enough for a picture of the drawing.
+const KEY_HEX: Record<string, [string, string]> = {
+  text: ['#ffffff', '#000000'], inverseText: ['#000000', '#ffffff'], inactive: ['#999999', '#666666'], subtle: ['#505050', '#afafaf'],
+  suggestion: ['#b1b9f9', '#5769f7'], remember: ['#b1b9f9', '#5769f7'], permission: ['#b1b9f9', '#5769f7'], success: ['#4eba65', '#2c7a39'],
+  error: ['#ff6b80', '#ab2b3f'], warning: ['#ffc107', '#966c1e'], merged: ['#af87ff', '#8700ff'], autoAccept: ['#af87ff', '#8700ff'],
+  claude: ['#d77757', '#d77757'], planMode: ['#48968c', '#006666'], promptBorder: ['#888888', '#999999'], bashBorder: ['#fd5db1', '#ff0087'], ide: ['#47829c', '#47829c'],
+}
+const ANSI_HEX = ['#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5', '#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#ffffff']
+const ANSI_NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+const hex2 = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')
+// Any colour setting (hex, rgb(), ansi256(), a name, a theme key) as #rrggbb.
+function hexOf(c: string | undefined, light: boolean): string | undefined {
+  if (!c) return undefined
+  const h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c)
+  if (h) return '#' + (h[1]!.length === 3 ? h[1]!.split('').map(d => d + d).join('') : h[1]!).toLowerCase()
+  const m = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i.exec(c)
+  if (m) return '#' + [m[1], m[2], m[3]].map(x => hex2(Number(x))).join('')
+  const a = /^ansi256\((\d+)\)$/i.exec(c)
+  if (a) {
+    const n = Math.min(255, Number(a[1]))
+    if (n < 16) return ANSI_HEX[n]
+    if (n >= 232) return '#' + hex2(8 + (n - 232) * 10).repeat(3)
+    return '#' + [Math.floor((n - 16) / 36), Math.floor((n - 16) / 6) % 6, (n - 16) % 6].map(v => hex2(v ? 55 + v * 40 : 0)).join('')
+  }
+  const nm = /^(black|red|green|yellow|blue|magenta|cyan|white|gray|grey)(bright)?$/i.exec(c)
+  if (nm) { const k = ANSI_NAMES.indexOf(nm[1]!.toLowerCase()); return k < 0 ? ANSI_HEX[8] : ANSI_HEX[k + (nm[2] ? 8 : 0)] }
+  return KEY_HEX[c]?.[light ? 1 : 0]
+}
+const mixHex = (a: string, b: string) => '#' + [1, 3, 5].map(i => hex2((parseInt(a.slice(i, i + 2), 16) + parseInt(b.slice(i, i + 2), 16)) / 2)).join('')
+const artOf = (lines: Run[][]) => lines.map(l => l.map(r => r.text).join('').trimEnd()).join('\n')
+async function copyPng($: EngineInterface, lines: Run[][], th: Theme, what: string, surface?: RenderSurface) {
+  const art = artOf(lines)
   if (await overSsh($)) { await copyText($, art, what + ' as text (a picture copy needs a local clipboard)', surface); return }
   const light = /light|latte|dawn/.test(th.name)
-  const fg = /^#[0-9a-f]{6}$/i.test(th.claude.text ?? '') ? th.claude.text! : SURFACE[th.name]?.text ?? (light ? '#24292f' : '#d7dae0')
-  const bg = optColor('pngBackgroundColor', SURFACE[th.name]?.surface ?? (light ? '#f6f8fa' : '#1e2027'))!
+  const fg = hexOf(th.claude.text ?? SURFACE[th.name]?.text, light) ?? (light ? '#24292f' : '#d7dae0')
+  const bg = hexOf(optColor('pngBackgroundColor', SURFACE[th.name]?.surface ?? (light ? '#f6f8fa' : '#1e2027')), light) ?? (light ? '#f6f8fa' : '#1e2027')
+  // each run in the colour the screen draws it: [text, #rrggbb, bold, its column]
+  const runs = lines.map(l => { let x = 0; return l.map(r => { const c = hexOf(r.color, light) ?? fg; x += strWidth(r.text); return [r.text, r.dimColor ? mixHex(c, bg) : c, r.bold ? 1 : 0, x - strWidth(r.text)] }) })
+  const cols = Math.max(1, ...art.split('\n').map(strWidth))
+  // ponytail: Windows draws the picture in one colour; per-run colours there when someone can test it
   const r = (await windows($))
     ? await ps($, 'Add-Type -AssemblyName System.Windows.Forms, System.Drawing; $f = New-Object System.Drawing.Font("Consolas", 11); $m = [System.Drawing.Graphics]::FromImage((New-Object System.Drawing.Bitmap 1, 1)).MeasureString($p.text, $f); ' +
       '$b = New-Object System.Drawing.Bitmap ([int]$m.Width + 48), ([int]$m.Height + 48); $g = [System.Drawing.Graphics]::FromImage($b); $g.Clear([System.Drawing.ColorTranslator]::FromHtml($p.bg)); $g.TextRenderingHint = "AntiAliasGridFit"; ' +
       '$g.DrawString($p.text, $f, (New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml($p.fg))), 24, 24); [System.Windows.Forms.Clipboard]::SetImage($b)', { text: art, fg, bg }).catch(() => ({ exitCode: 1 }))
-    : await run($, ['sh', '-c', '[ "$(uname)" = Darwin ] || exit 127; osascript -l JavaScript -e "$1" "$2" "$3" "$4"', 'sh', PNG_JXA, art, fg, bg]).catch(() => ({ exitCode: 1 }))
+    : await run($, ['sh', '-c', '[ "$(uname)" = Darwin ] || exit 127; osascript -l JavaScript -e "$1" "$2"', 'sh', PNG_JXA, JSON.stringify({ lines: runs, bg, cols })]).catch(() => ({ exitCode: 1 }))
   if (r.exitCode === 0) $.ui.toast(`Copied ${what} as a picture`)
   else { await copyText($, art, what + ' as text', surface); $.ui.toast(r.exitCode === 127 ? 'A picture copy needs macOS or Windows; copied the text' : 'Could not make the picture; copied the text') }
 }
@@ -856,21 +893,26 @@ const HTML_JXA = [
   '}',
 ].join('\n')
 // macOS: draw the text into an image with AppKit and put it on the pasteboard.
+// Each run is drawn on its own at its cell (the bridge osascript has cannot build attributed strings).
 const PNG_JXA = [
   'function run(argv) {',
   '  ObjC.import("AppKit")',
-  '  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255)',
-  '  const [fr, fg2, fb] = hex(argv[1]), [br, bg2, bb] = hex(argv[2])',
-  '  const text = $.NSString.alloc.initWithUTF8String(argv[0])',
-  '  const attrs = $.NSMutableDictionary.alloc.init',
-  '  attrs.setObjectForKey($.NSFont.monospacedSystemFontOfSizeWeight(15, 0), $.NSFontAttributeName)',
-  '  attrs.setObjectForKey($.NSColor.colorWithSRGBRedGreenBlueAlpha(fr, fg2, fb, 1), $.NSForegroundColorAttributeName)',
-  '  const size = text.sizeWithAttributes(attrs), pad = 24',
-  '  const img = $.NSImage.alloc.initWithSize($.NSMakeSize(size.width + 2 * pad, size.height + 2 * pad))',
+  '  const p = JSON.parse(argv[0])',
+  '  const col = h => $.NSColor.colorWithSRGBRedGreenBlueAlpha(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255, 1)',
+  '  const attrsOf = (c, b) => {',
+  '    const attrs = $.NSMutableDictionary.alloc.init',
+  '    attrs.setObjectForKey($.NSFont.monospacedSystemFontOfSizeWeight(15, b ? 0.4 : 0), $.NSFontAttributeName)',
+  '    attrs.setObjectForKey(col(c), $.NSForegroundColorAttributeName)',
+  '    return attrs',
+  '  }',
+  '  const cell = $("M").sizeWithAttributes(attrsOf(p.bg, 0)), pad = 24',
+  '  const w = p.cols * cell.width + 2 * pad, h = p.lines.length * cell.height + 2 * pad',
+  '  const img = $.NSImage.alloc.initWithSize($.NSMakeSize(w, h))',
   '  img.lockFocus',
-  '  $.NSColor.colorWithSRGBRedGreenBlueAlpha(br, bg2, bb, 1).setFill',
-  '  $.NSRectFill($.NSMakeRect(0, 0, size.width + 2 * pad, size.height + 2 * pad))',
-  '  text.drawAtPointWithAttributes($.NSMakePoint(pad, pad), attrs)',
+  '  col(p.bg).setFill',
+  '  $.NSRectFill($.NSMakeRect(0, 0, w, h))',
+  '  p.lines.forEach((line, n) => line.forEach(([t, c, b, x]) =>',
+  '    $(t).drawAtPointWithAttributes($.NSMakePoint(pad + x * cell.width, h - pad - (n + 1) * cell.height), attrsOf(c, b))))',
   '  img.unlockFocus',
   '  const pb = $.NSPasteboard.generalPasteboard',
   '  pb.clearContents',
@@ -1233,8 +1275,9 @@ function figureOf(src: string, room: number): { lines: Seg2[][] } | { error: str
   const lines: Seg2[][] = []
   const rows = src.replace(/\n+$/, '').split('\n')
   if (rows.length > 80) return { error: 'figure: more than 80 lines' }
-  for (const [n, row] of rows.entries()) {
-    if (row.includes('\t')) return { error: `figure line ${n + 1}: a tab; use spaces` }
+  for (const [n, raw] of rows.entries()) {
+    if (raw.includes('\t')) return { error: `figure line ${n + 1}: a tab; use spaces` }
+    const row = raw.replace(/\{(accent|warn|ok|note|dim|strong)\}([^{}]*)\{\/\1\}/g, '{$1:$2}') // {ok}text{/ok} reads as {ok:text}
     const segs: Seg2[] = []
     let last = 0
     for (const m of row.matchAll(ROLE)) {
@@ -1244,7 +1287,7 @@ function figureOf(src: string, room: number): { lines: Seg2[][] } | { error: str
     }
     if (last < row.length) segs.push({ text: row.slice(last) })
     const rest = segs.filter(sg => !sg.role).map(sg => sg.text).join('')
-    if (/\{[a-z]+:/i.test(rest)) return { error: `figure line ${n + 1}: role markup is misspelled, nested or left open` }
+    if (/\{[a-z]+:|\{\/?(accent|warn|ok|note|dim|strong)\}/i.test(rest)) return { error: `figure line ${n + 1}: role markup is misspelled, nested or left open` }
     if (strWidth(segs.map(sg => sg.text).join('')) > room) return { error: `figure line ${n + 1}: wider than the bubble` }
     lines.push(segs)
   }
@@ -1324,6 +1367,11 @@ const PICTURE_HINT = [
   'and ```figure blocks, drawn exactly as written, where {accent:…} {warn:…} {ok:…} {note:…} {dim:…} {strong:…} colour a run',
   '(one-column glyphs only, at most 74 columns). Use a picture when it explains better than prose; keep short answers plain.',
 ].join(' ')
+// The pane the last reply was drawn in. Under 100 columns (a split or tiled pane) the note names
+// its width, so Claude sizes pictures to fit instead of having them fall back to source.
+let pane: { cols: number; room: number } | undefined
+const paneHint = () => !pane || pane.cols >= 100 ? ''
+  : ` This pane is only ${pane.cols} columns wide: keep diagrams narrow (top-down, short labels, at most 3 boxes side by side) and figures at most ${Math.max(20, pane.room - 2)} columns.`
 
 // Sequence diagrams: a box per participant over its lifeline, a message as an arrow between
 // lifelines with its text above (dashed for a reply), notes and loop/alt/opt labels as dim lines.
@@ -1854,31 +1902,100 @@ function pieCircle(chart: Chart, room: number): Seg2[][] | undefined {
 }
 
 // Code colours. Claude Code's code view has its own; set any code colour and undertone draws code
-// blocks itself with a small per-line tokenizer. ponytail: no multi-line comments or strings;
-// a grammar-based highlighter if that ever matters.
+// blocks itself with a small tokenizer that knows each language's comments, strings and keywords;
+// block comments and Python's triple-quoted strings carry across lines. ponytail: no grammar, so
+// a keyword used as a name is still coloured; a real highlighter if that ever matters.
 const CODE_KEYS = ['codeTextColor', 'codeCommandColor', 'codeFlagColor', 'codeStringColor', 'codeCommentColor']
 const ownCode = () => CODE_KEYS.some(k => optColor(k, undefined))
 const KEYWORDS = new Set('const let var function return if else for while do switch case break continue new class extends import from export default async await try catch finally throw def lambda pass raise with as yield fn pub struct enum impl match use mod func package type interface go defer select public private protected static void true false null None True False nil self this in of is not and or end then elif local'.split(' '))
-const isShell = (lang: string) => /^(bash|sh|zsh|fish|shell|console|powershell|ps1|)$/.test(lang)
-const CODE_TOKEN = /(\/\/.*$|#.*$|--\s.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(--?[A-Za-z][\w-]*)|([A-Za-z_$][\w$]*)|(\s+|.)/g
+type Lang = { line: string[]; block?: [string, string, CodeKind][]; words?: Set<string>; caseless?: boolean; shell?: boolean; sq?: 'string' | 'char' | 'none' }
+const C_BLOCK: [string, string, CodeKind][] = [['/*', '*/', 'comment']]
+const w = (s: string) => new Set(s.split(' '))
+// [names, comments and strings, extra keywords]; the shared KEYWORDS apply to all but SQL-like ones.
+const LANGS: [RegExp, Lang][] = [
+  [/^(bash|sh|zsh|fish|shell|shellsession|console|terminal|powershell|ps1|pwsh|)$/, { line: ['#'], shell: true }],
+  [/^(c|h|cpp|c\+\+|cc|cxx|hpp|hxx|objc|objective-c|objectivec|m|mm|cuda|cu|arduino|ino|glsl|hlsl|metal)$/, { line: ['//'], block: C_BLOCK, sq: 'char', words: w('auto bool char double extern float goto inline int long register restrict short signed sizeof typedef union unsigned volatile include define ifdef ifndef endif pragma undef namespace using template typename virtual override operator friend delete mutable constexpr nullptr noexcept explicit final noreturn') }],
+  [/^(cs|csharp|c#|java|kotlin|kt|kts|scala|sc|groovy|gradle|dart|swift|apex|vala|haxe|hx)$/, { line: ['//'], block: C_BLOCK, sq: 'char', words: w('abstract assert boolean byte char double float int long short final native synchronized transient volatile throws implements instanceof super val fun when object companion data sealed internal open override lateinit suspend namespace using readonly ref out params base string decimal guard protocol extension init deinit where inout lazy weak unowned fileprivate operator implicit trait required late extends mixin factory get set var') }],
+  [/^(go|golang)$/, { line: ['//'], block: C_BLOCK, sq: 'char', words: w('chan range fallthrough map goto') }],
+  [/^(rust|rs)$/, { line: ['//'], block: C_BLOCK, sq: 'none', words: w('mut crate super dyn unsafe trait loop move ref where macro_rules Self') }],
+  [/^(zig|v|odin|d|solidity|sol)$/, { line: ['//'], block: C_BLOCK, words: w('comptime errdefer orelse unreachable usingnamespace contract mapping modifier event emit payable view pure memory storage calldata address uint int bool') }],
+  [/^(js|javascript|jsx|mjs|cjs|ts|typescript|tsx|mts|cts|json5|jsonc|qml|actionscript)$/, { line: ['//'], block: C_BLOCK, words: w('typeof instanceof delete void debugger satisfies keyof readonly declare namespace abstract implements enum get set') }],
+  [/^(php|phtml)$/, { line: ['//', '#'], block: C_BLOCK, words: w('echo print foreach elseif endif endforeach endwhile endfor require require_once include include_once array isset unset empty die exit global clone insteadof callable iterable mixed never declare namespace abstract final implements instanceof trait readonly enum') }],
+  [/^(css|scss|sass|less|stylus|styl)$/, { line: [], block: C_BLOCK, words: w('important media import supports keyframes font-face mixin include extend') }],
+  [/^(py|python|python3|py3|pyi|ipython|gdscript|gd|starlark|bzl|bazel)$/, { line: ['#'], block: [['"""', '"""', 'string'], ["'''", "'''", 'string']], words: w('assert global nonlocal del except print async await') }],
+  [/^(rb|ruby|crystal|cr|rake|gemspec)$/, { line: ['#'], block: [['=begin', '=end', 'comment']], words: w('unless until begin rescue ensure retry redo defined module alias undef elsif puts require attr_accessor attr_reader') }],
+  [/^(ex|exs|elixir|heex)$/, { line: ['#'], words: w('defmodule defp defstruct defmacro defimpl defprotocol receive cond quote unquote alias require') }],
+  [/^(julia|jl)$/, { line: ['#'], block: [['#=', '=#', 'comment']], words: w('module mutable abstract primitive macro quote begin let global baremodule') }],
+  [/^(nim|nimble)$/, { line: ['#'], block: [['#[', ']#', 'comment']], words: w('proc iterator method template macro object tuple var') }],
+  [/^(coffee|coffeescript)$/, { line: ['#'], block: [['###', '###', 'comment']] }],
+  [/^(yaml|yml|toml|r|perl|pl|pm|raku|make|makefile|mk|dockerfile|docker|containerfile|tcl|nix|graphql|gql|cmake|conf|properties|env|dotenv|gitignore|ignore|nginx|apache|hcl|tf|terraform|awk|sed|editorconfig|procfile|just|justfile)$/, { line: ['#'], words: w('resource variable output module provider data locals FROM RUN CMD COPY ADD ENV ARG WORKDIR EXPOSE ENTRYPOINT USER VOLUME LABEL query mutation subscription fragment schema scalar input') }],
+  [/^(sql|mysql|postgres|postgresql|psql|pgsql|plsql|plpgsql|sqlite|tsql|mssql|bigquery|snowflake|hive|spark|cql)$/, { line: ['--', '#'], block: C_BLOCK, caseless: true, words: w('select from where insert into values update set delete create table drop alter add column join left right inner outer full cross on group by order having limit offset as and or not null is in like ilike between union all distinct case when then else end primary key foreign references index view begin commit rollback returning with exists default constraint unique check grant revoke if procedure function trigger declare cascade asc desc true false') }],
+  [/^(lua|luau)$/, { line: ['--'], block: [['--[[', ']]', 'comment']], words: w('local function end then repeat until elseif goto') }],
+  [/^(haskell|hs|elm|purescript|purs|idris|agda)$/, { line: ['--'], block: [['{-', '-}', 'comment']], sq: 'char', words: w('module where import data type newtype class instance deriving let in case of do if then else qualified hiding infixl infixr port exposing alias') }],
+  [/^(ada|adb|ads|vhdl|vhd|applescript|osascript)$/, { line: ['--'], caseless: true, words: w('procedure function begin end is package body record loop tell to set get entity architecture signal process') }],
+  [/^(ocaml|ml|mli|fsharp|fs|fsx|f#|sml|reason|re)$/, { line: ['//'], block: [['(*', '*)', 'comment']], sq: 'char', words: w('let rec in match with fun function type module open begin end of val mutable when sig struct functor member') }],
+  [/^(lisp|commonlisp|common-lisp|cl|clojure|clj|cljs|cljc|edn|scheme|scm|racket|rkt|elisp|emacs-lisp|el|fennel|fnl|hy)$/, { line: [';'], sq: 'none', words: w('defun defn defmacro defvar defparameter defconst define lambda let let* letrec cond setq setf progn loop require ns fn') }],
+  [/^(asm|nasm|masm|gas|s|x86asm|arm|armasm|riscv|wasm|wat|ini|cfg|autohotkey|ahk|reg)$/, { line: [';', '#'], sq: 'none' }],
+  [/^(erlang|erl|tex|latex|context|bibtex|bib|matlab|octave|prolog|postscript|ps)$/, { line: ['%'], words: w('module export fun receive after when begin documentclass usepackage section subsection label ref cite') }],
+  [/^(html|htm|xhtml|xml|svg|xsl|xslt|plist|vue|svelte|astro|markdown|md|mdx|xaml|jsp|erb|ejs|hbs|handlebars|razor)$/, { line: [], block: [['<!--', '-->', 'comment']], sq: 'none', words: w('html head body div span script style template') }],
+  [/^(vb|vbnet|vb\.net|vba|vbs|vbscript|basic)$/, { line: ["'", 'REM '], caseless: true, sq: 'none', words: w('dim sub function end if then else elseif for each next while wend do loop select case with as new set let call byval byref private public module class property return nothing') }],
+  [/^(fortran|f|f77|f90|f95|f03|f08)$/, { line: ['!'], caseless: true, words: w('program subroutine function module use implicit none integer real double precision character logical dimension allocatable intent call end do if then else contains') }],
+  [/^(bat|batch|cmd|dos)$/, { line: ['REM ', 'rem ', '::'], shell: true }],
+]
+const langCache = new Map<string, { lang: Lang; re: RegExp }>()
+const reEsc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function langOf(name: string) {
+  let hit = langCache.get(name)
+  if (!hit) {
+    const lang = LANGS.find(([re]) => re.test(name))?.[1] ?? { line: ['//', '#'], block: C_BLOCK } // unknown: the common comment forms
+    const sq = lang.sq === 'none' ? '' : lang.sq === 'char' ? "|'(?:[^'\\\\]|\\\\.)'" : "|'(?:[^'\\\\]|\\\\.)*'"
+    const opens = (lang.block ?? []).map(([o]) => reEsc(o)).sort((x, y) => y.length - x.length)
+    const comment = [...opens, ...lang.line.map(l => reEsc(l) + '.*$')].join('|') || '(?!)'
+    hit = { lang, re: new RegExp(`(${comment})|("(?:[^"\\\\]|\\\\.)*"${sq}|\`(?:[^\`\\\\]|\\\\.)*\`)|(--?[A-Za-z][\\w-]*)|([A-Za-z_$@][\\w$-]*[\\w$]|[A-Za-z_$@])|(\\s+|.)`, 'g' + (lang.caseless ? 'i' : '')) }
+    langCache.set(name, hit)
+  }
+  return hit
+}
 type CodeKind = 'text' | 'command' | 'flag' | 'string' | 'comment'
-function codeLine(line: string, lang: string): { text: string; kind: CodeKind }[] {
-  const shell = isShell(lang)
-  const hash = shell || /^(py|python|rb|ruby|yaml|yml|toml|r|perl|make|dockerfile)$/i.test(lang)
+type Open = { close: string; kind: CodeKind } | undefined
+// One line's tokens; `open` is a block comment or string still running from the line before.
+function codeLine(line: string, name: string, open?: Open): { toks: { text: string; kind: CodeKind }[]; open: Open } {
+  const { lang, re } = langOf(name)
   const out: { text: string; kind: CodeKind }[] = []
+  let at = 0
+  if (open) {
+    const end = line.indexOf(open.close)
+    if (end < 0) return { toks: [{ text: line, kind: open.kind }], open }
+    out.push({ text: line.slice(0, end + open.close.length), kind: open.kind })
+    at = end + open.close.length
+  }
   let first = true // a shell line's first word is its command; again after | && ; and $
-  for (const m of line.matchAll(CODE_TOKEN)) {
+  re.lastIndex = at
+  for (let m = re.exec(line); m; m = re.exec(line)) {
     const [t, comment, str, flag, word] = m
     let kind: CodeKind = 'text'
-    if (comment && (!comment.startsWith('#') || hash) && (!comment.startsWith('--') || /^(sql|lua|haskell|hs)$/i.test(lang))) {
-      out.push({ text: line.slice(m.index), kind: 'comment' }); break
+    if (comment) {
+      const blk = lang.block?.find(([o]) => comment === o || (lang.caseless && comment.toLowerCase() === o.toLowerCase()))
+      if (!blk) { out.push({ text: t, kind: 'comment' }); break }
+      const end = line.indexOf(blk[1], m.index + blk[0].length)
+      if (end < 0) { out.push({ text: line.slice(m.index), kind: blk[2] }); return { toks: out, open: { close: blk[1], kind: blk[2] } } }
+      out.push({ text: line.slice(m.index, end + blk[1].length), kind: blk[2] })
+      re.lastIndex = end + blk[1].length
+      continue
     } else if (str) kind = 'string'
-    else if (flag && shell) kind = 'flag'
-    else if (word) kind = shell ? (first ? 'command' : 'text') : KEYWORDS.has(word) ? 'flag' : line[m.index + word.length] === '(' || /^[A-Z]/.test(word) ? 'command' : 'text'
-    if (shell && !/^\s+$/.test(t)) first = /^(\||&&|;|\$)$/.test(t) || (first && t === '$')
+    else if (flag && lang.shell) kind = 'flag'
+    else if (word) {
+      const bare = lang.caseless ? word.toLowerCase() : word
+      kind = lang.shell ? (first ? 'command' : 'text')
+        : (!lang.caseless && KEYWORDS.has(bare)) || lang.words?.has(bare) ? 'flag'
+        : line[m.index + word.length] === '(' || /^[A-Z]/.test(word) ? 'command' : 'text'
+    } else if (flag) { // a '-' then a word outside a shell: the minus, then read the word again
+      out.push({ text: t[0]!, kind: 'text' }); re.lastIndex = m.index + 1; continue
+    }
+    if (lang.shell && !/^\s+$/.test(t)) first = /^(\||&&|;|\$)$/.test(t) || (first && t === '$')
     out.push({ text: t, kind })
   }
-  return out
+  return { toks: out, open: undefined }
 }
 function drawCode(ui: ElementTable, th: Theme, src: string, lang: string) {
   const { Box, Text } = ui
@@ -1889,7 +2006,18 @@ function drawCode(ui: ElementTable, th: Theme, src: string, lang: string) {
     string: { color: optColor('codeStringColor', 'success') },
     comment: optColor('codeCommentColor', undefined) ? { color: optColor('codeCommentColor', undefined) } : { dimColor: true },
   }
-  return <Box flexDirection="column">{src.split('\n').map(l => <Text>{l ? codeLine(l, lang.toLowerCase()).map(t => <Text {...ink[t.kind]}>{t.text}</Text>) : ' '}</Text>)}</Box>
+  let open: Open
+  const name = lang.trim().toLowerCase()
+  return (
+    <Box flexDirection="column">
+      {src.split('\n').map(l => {
+        if (!l) return <Text>{' '}</Text>
+        const r = codeLine(l, name, open)
+        open = r.open
+        return <Text>{r.toks.map(t => <Text {...ink[t.kind]}>{t.text}</Text>)}</Text>
+      })}
+    </Box>
+  )
 }
 
 // One rich block, or undefined to leave the part to the drawing it had before.
@@ -2047,18 +2175,20 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
       </Box>
     )
   }
-  const art = rows.map(r => r.map(sg => sg.text).join('').trimEnd()).join('\n')
+  const styleOf = (sg: Seg2): Omit<Run, 'text'> => !sg.role ? { color: diagramText } : sg.role.startsWith('ink:') ? { color: sg.role.slice(4) } : roleInk[sg.role] ?? {}
+  const runs = rows.map(r => r.map(sg => ({ text: sg.text, ...styleOf(sg) })))
+  const art = artOf(runs)
   const copy = (
     <Box columnGap={1}>
       <Text dimColor>copy</Text>
       <Button key={'src-' + i} plain dimColor label="[ source ]" onPress={p => copyText($, part.copy, 'the source', p.surface)} />
       <Button key={'art-' + i} plain dimColor label="[ art ]" onPress={p => copyText($, art, 'the drawing', p.surface)} />
-      <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, art, th, 'the drawing', p.surface)} />
+      <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, runs, th, 'the drawing', p.surface)} />
     </Box>
   )
   const body = (
     <Box flexDirection="column" marginY={1}>
-      {rows.map(r => <Text>{r.map(sg => <Text {...(!sg.role ? { color: diagramText } : sg.role.startsWith('ink:') ? { color: sg.role.slice(4) } : roleInk[sg.role] ?? {})}>{sg.text}</Text>)}</Text>)}
+      {rows.map(r => <Text>{r.map(sg => <Text {...styleOf(sg)}>{sg.text}</Text>)}</Text>)}
     </Box>
   )
   return hov
@@ -2781,7 +2911,7 @@ export const register: Register = (on, options) => {
     await $.state.set(TURN, tally)
     await $.state.set(TURN_TOOLS, 0)
     // A note only the model reads, so Claude reaches for a picture when one would help.
-    if (!e.command && richText() && opt<unknown>('diagramHints', true) !== false) return next({ ...e, context: [...(e.context ?? []), PICTURE_HINT] })
+    if (!e.command && richText() && opt<unknown>('diagramHints', true) !== false) return next({ ...e, context: [...(e.context ?? []), PICTURE_HINT + paneHint()] })
     return next(e)
   })
   on('turn.complete', async ($, e, next) => {
@@ -2879,11 +3009,16 @@ export const register: Register = (on, options) => {
         const t = await timeOf($, e.requestId, e.props.text, th.preciseTime)
         const lines = e.props.text.split('\n')
         const shown = lines.length > th.foldLines ? lines.slice(0, th.foldLines).join('\n') + `\n… ${lines.length - th.foldLines} more lines (ctrl+o)` : e.props.text
+        // Who sent it: one of this session's agents, a channel, or another Claude session.
+        const ours = (await $.agent.list().catch(() => [])).some(a => (a.teammateId?.split('@')[0] || a.type) === name)
+        const origin = e.props.origin as { kind: string; server?: string }
+        const tag = ours ? 'subagent' : origin.kind === 'channel' ? origin.server ?? 'channel' : 'session'
         return (
           <Bx marginTop={th.spacing}>
-            <Bx width={bubbleWidth(shown, `◆ ${name}  ${t}`, cols, th.claudeShare, chrome(th.claude, th.padding))} flexDirection="column" borderStyle={th.claude.shape === 'none' ? 'round' : th.claude.shape} borderColor={ink} paddingX={th.padding}>
+            <Bx width={bubbleWidth(shown, `◆ ${name}  ${tag}   ${t}`, cols, th.claudeShare, chrome(th.claude, th.padding))} flexDirection="column" borderStyle={th.claude.shape === 'none' ? 'round' : th.claude.shape} borderColor={ink} paddingX={th.padding}>
               <Text>
                 <Text bold color={ink}>{'◆ ' + name}</Text>
+                <Text dimColor>{'  ['}</Text><Text color={ink}>{tag}</Text><Text dimColor>{']'}</Text>
                 {t && <Text dimColor>{'  ' + t}</Text>}
               </Text>
               <Text>{shown}</Text>
@@ -3021,6 +3156,7 @@ export const register: Register = (on, options) => {
     if (rich && !where.cwd) { where.cwd = await $.session.cwd().catch(() => ''); where.home = await homeDir($).catch(() => '') }
     const parts = splitReply(shown, rich)
     const room = w - chrome(th.claude, th.padding)
+    pane = { cols: e.viewport?.columns ?? 80, room: Math.max(12, Math.floor((e.viewport?.columns ?? 80) * th.claudeShare)) - chrome(th.claude, th.padding) }
     // A typeset formula needs a real colour: the theme's text where it has one, else dark ink on a
     // light theme and light ink otherwise (the terminal's own background can't be read).
     const mathInk = /^#[0-9a-f]{6}$/i.test(th.claude.text ?? '') ? th.claude.text! : /light|latte|dawn/.test(th.name) ? '#333333' : '#d7dae0'
@@ -3070,7 +3206,10 @@ export const register: Register = (on, options) => {
               const table = parseTable(part.md)
               if (!table) return <Markdown text={part.md} />
               const lines = layoutTable(table, room, th.tableStyle)
-              const art = layoutTable(table, room, 'box').map(l => l.map(sg => sg.text).join('').trimEnd()).join('\n')
+              const cellInk = (sg: Out[number]) => sg.rule ? { dimColor: true, color: optColor('tableRuleColor', th.claude.border) }
+                : { bold: !!(sg.head || sg.bold), color: sg.head ? optColor('tableHeaderColor', th.claude.label) : sg.code ? optColor('inlineCodeColor', th.user.border) : sg.link ? optColor('linkColor', th.user.border) : sg.bold ? optColor('strongColor', optColor('tableTextColor', th.claude.text)) : sg.italic ? optColor('emphasisColor', optColor('tableTextColor', th.claude.text)) : optColor('tableTextColor', th.claude.text) }
+              const runs = layoutTable(table, room, 'box').map(l => l.map(sg => ({ text: sg.text, ...cellInk(sg) })))
+              const art = artOf(runs)
               const copy = (
                 <Box columnGap={1}>
                   <Text dimColor>copy</Text>
@@ -3078,15 +3217,14 @@ export const register: Register = (on, options) => {
                   <Button key={'cells-' + i} plain dimColor label="[ cells ]" onPress={p => copyText($, tableCells(table), 'the table as cells', p.surface)} />
                   <Button key={'html-' + i} plain dimColor label="[ html ]" onPress={p => copyRich($, tableHtml(table), tableCells(table), 'the table', p.surface)} />
                   <Button key={'art-' + i} plain dimColor label="[ art ]" onPress={p => copyText($, art, 'the table as art', p.surface)} />
-                  <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, art, th, 'the table', p.surface)} />
+                  <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, runs, th, 'the table', p.surface)} />
                 </Box>
               )
               const body = (
                 <Box flexDirection="column" marginY={1}>
                   {lines.map(line => (
                     <Text>
-                      {line.map(sg => sg.rule ? <Text dimColor color={optColor('tableRuleColor', th.claude.border)}>{sg.text}</Text>
-                        : <Text bold={sg.head || sg.bold} italic={sg.italic} underline={sg.link} color={sg.head ? optColor('tableHeaderColor', th.claude.label) : sg.code ? optColor('inlineCodeColor', th.user.border) : sg.link ? optColor('linkColor', th.user.border) : sg.bold ? optColor('strongColor', optColor('tableTextColor', th.claude.text)) : sg.italic ? optColor('emphasisColor', optColor('tableTextColor', th.claude.text)) : optColor('tableTextColor', th.claude.text)}>{sg.text}</Text>)}
+                      {line.map(sg => <Text {...cellInk(sg)} italic={!sg.rule && sg.italic} underline={!sg.rule && sg.link}>{sg.text}</Text>)}
                     </Text>
                   ))}
                 </Box>

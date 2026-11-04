@@ -91,8 +91,11 @@ test('[ png ] on macOS draws the boxed table into a picture with AppKit, in the 
   await press($, ui, '[ png ]')
   const r = runs.find(x => x.argv.join(' ').includes('osascript -l JavaScript'))!
   expect(r.argv[4]).toContain('NSPasteboard') // the script
-  expect(r.argv[5]).toMatch(/^┌.*\n│ Env/) // the art
-  expect([r.argv[6], r.argv[7]]).toEqual(['#F8F8F2', '#44475A']) // dracula's text on its surface
+  const pic = JSON.parse(r.argv[5]!) // each run with its colour, boldness and column
+  expect(pic.lines[0][0][0]).toMatch(/^┌/)
+  expect(pic.lines[1].find((x: any) => x[0] === 'Env')).toEqual(['Env', '#ff79c6', 1, 2]) // dracula's header, bold
+  expect(pic.lines[1].find((x: any) => x[0] === '│ ')[1]).not.toBe('#ff79c6') // rules in their own colour
+  expect(pic.bg).toBe('#44475a') // dracula's surface
   expect(toasts.at(-1)).toContain('as a picture')
   await ui.unmount()
 })

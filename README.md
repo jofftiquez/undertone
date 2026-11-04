@@ -92,13 +92,13 @@ Five ways to copy a table, in the row above it, `copy [ md ] [ cells ] [ html ] 
 | `[ cells ]` | Tab-separated plain text | Slack, Excel, Google Sheets, Numbers |
 | `[ html ]` | A formatted table (header, alignment, bold, links) and its text twin | Word, Teams, Google Docs, Outlook |
 | `[ art ]` | The drawn, boxed table as text | Anywhere Markdown doesn't render |
-| `[ png ]` | A picture of the drawn table, in the theme's colours | Slides, docs, chat |
+| `[ png ]` | A picture of the drawn table, each part in the colour it has on screen | Slides, docs, chat |
 
 ![Pointing at a reply shows its buttons: ☆, reply, react and copy on the bubble, the copy row over the table, and copy code on the code block](docs/copy.png)
 
 `[ html ]` and `[ png ]` need the computer's own clipboard: `[ html ]` works on macOS, Windows, and Linux with
-[CopyQ](https://copyq.readthedocs.io/) running; `[ png ]` on macOS and Windows. Elsewhere, and over SSH, they copy
-text and say so. Pictures (charts, diagrams, figures) get `copy [ source ] [ art ] [ png ]`.
+[CopyQ](https://copyq.readthedocs.io/) running; `[ png ]` on macOS and Windows (on Windows in one colour). Elsewhere, and over SSH, they copy
+text and say so. Pictures (charts, diagrams, figures) get `copy [ source ] [ art ] [ png ]`, the picture again in its colours.
 
 ### Rich text
 
@@ -163,9 +163,9 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 - **Quadrant charts** as a grid with each quadrant's label and the points numbered, a legend under it; **timelines** as periods on a line with their events; **Sankey** flows as bars sized by value; **C4** diagrams as people and systems in boxes (their kind and description inside) with the relations in words.
 - **Gantt charts**: a bar per task on a shared date axis, with sections; done tasks green, active amber, critical red, milestones `◆` (`YYYY-MM-DD` dates; durations in `d`, `h`, `w`, or `after <task>`).
 - **Sequence diagrams**: a box per participant over its lifeline, each message an arrow with its text above, replies dashed, notes and `loop`/`alt` labels as dim lines.
-- **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run. A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
+- **Figures**: a ` ```figure ` block draws exactly as written, with `{accent:…}`, `{warn:…}`, `{ok:…}`, `{note:…}`, `{dim:…}` and `{strong:…}` colouring a run (`{ok}…{/ok}` works too). A line that would not draw as written (too wide, a tab, broken markup) leaves it as code, with a note saying why.
 - `[ source ]`, `[ art ]` and `[ png ]` on each. Requirement and block diagrams, and a block still streaming, stay code.
-- So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens); *Tell Claude about pictures* turns it off.
+- So Claude knows, each prompt you type carries a short note only the model reads (about 130 tokens). In a pane under 100 columns, such as a split or tiled pane, the note gives the width so Claude keeps diagrams narrow enough to draw; *Tell Claude about pictures* turns it off.
 
 ### Math, footnotes and copying
 
@@ -193,7 +193,7 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 ![Claude handing work to an Explore agent, the agent's answer as its own bubble, a finished-task chip and the Agents strip above the prompt](docs/agents.png)
 
 - **System cards**: every slash command's output in a card: the command in Claude's colour, `[ copy ]` and the time; a red frame and `✗` when it failed.
-- **Group chat**: a message from an agent, teammate or another session is its own bubble with its name and colour; a finished background task is a chip, `✓ Explore finished · 9s`.
+- **Group chat**: a message from an agent, teammate or another session is its own bubble with its name, its colour and a tag for what sent it: `[subagent]` for one of this session's agents, `[session]` for another Claude session, or the channel's name; a finished background task is a chip, `✓ Explore finished · 9s`.
 - **Agents**: Claude handing work to an agent reads `↳ Claude → Explore: find the config`, with `◌ working` or `↗ in background`, then `✓ done`; a foreground agent's report is its own bubble, folded when long, and a background agent's arrives as its own message. Above the prompt, `Agents ● Explore · find the config ○ planner (done)`, and the turn summary counts them apart: `· 5 tools · 2 agents (31 tools)`.
 - **Claude asks**: Claude's multiple-choice questions sit under a `Claude asks` header, and the call's row says what was asked.
 - **Welcome**: `✻ Good morning · 3rd session today · last one ended 2h ago` when a session starts (with your name, if you set *Your label*).
@@ -316,7 +316,7 @@ Everything is in `/config → undertone`. The ones you'll reach for first:
 | System notification for long turns | on, after `30` s | |
 | Enabled | on | off = Claude Code's own look |
 
-Colours: numbers, paths, headings, bullets, bold and italic text, inline code, links, quote bars, rules, accents, diagrams and their text, table headers, rules and text, diff additions and removals, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme wherever undertone draws the text itself (Claude Code draws some Markdown with its own colours). Set any code colour (*text*, *command*, *flag*, *string*, *comment*) and undertone draws code blocks itself, in yours: shell commands, functions and class names in the command colour, `--flags` and keywords in the flag colour.
+Colours: numbers, paths, headings, bullets, bold and italic text, inline code, links, quote bars, rules, accents, diagrams and their text, table headers, rules and text, diff additions and removals, each alert kind (*note*, *tip*, *important*, *warning*, *caution*) and the PNG background each take a `#rrggbb` that wins over the theme wherever undertone draws the text itself (Claude Code draws some Markdown with its own colours). Set any code colour (*text*, *command*, *flag*, *string*, *comment*) and undertone draws code blocks itself, in yours: shell commands, functions and class names in the command colour, `--flags` and keywords in the flag colour. It knows the comments, strings and keywords of about 40 languages and their aliases, among them C, C++, C#, Java, Kotlin, Swift, Go, Rust, JavaScript and TypeScript, PHP, Python, Ruby, Elixir, SQL, Lua, Haskell, OCaml, Lisp and Clojure, HTML and XML, CSS, YAML, Dockerfile, Terraform, VB and Fortran. Block comments and Python's `"""` strings carry across lines.
 
 ## Privacy and side effects
 
@@ -338,7 +338,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 319 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 349 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code
