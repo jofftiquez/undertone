@@ -233,16 +233,20 @@ The same conversation in three of them: `default`, `dracula`, and `messenger` (f
   <tr><td align="center"><code>default</code></td><td align="center"><code>dracula</code></td><td align="center"><code>messenger</code></td></tr>
 </table>
 
+And `hacker`: green phosphor, ASCII frames down the left like a session log, and shell-prompt labels.
+
+![The hacker theme: you@localhost and claude@mainframe in green ASCII frames, a status table, a bash line and a flowchart](docs/theme-hacker.png)
+
 ![The theme gallery from /undertone-theme](docs/themes.png)
 
-**39 presets**, every one previewable with `/undertone-theme` and switchable on the spot:
+**40 presets**, every one previewable with `/undertone-theme` and switchable on the spot:
 
 | Group | Presets |
 |---|---|
 | Shapes, in your terminal's own colours | `default` (rounded) · `sharp` · `double` · `bold` · `dashed` · `minimal` (a left bar) · `terminal` (ASCII, one column) · `mono` |
 | Filled, like a messaging app | `messenger` · `messenger-light` |
 | Inspired by popular editor themes | `dracula` · `catppuccin-mocha` · `catppuccin-macchiato` · `catppuccin-latte` · `tokyo-night` · `nord` · `gruvbox` · `gruvbox-light` · `solarized-dark` · `solarized-light` · `one-dark` · `monokai` · `github-dark` · `github-light` · `rose-pine` · `rose-pine-dawn` · `everforest` · `kanagawa` · `ayu` · `night-owl` · `palenight` · `synthwave-84` · `cobalt2` · `horizon` · `material` · `tomorrow-night` |
-| undertone originals | `ocean` · `forest` · `sunset` · `random` (a dark preset each load) |
+| undertone originals | `ocean` · `forest` · `sunset` · `hacker` (green phosphor, ASCII frames, shell-prompt labels) · `random` (a dark preset each load) |
 
 Then fine-tune any part in `/config → undertone`: **bubble style** (framed or filled, for any theme), **shape** per
 side (rounded, sharp, double, bold, dashed, ascii, bar, none), **colours** (border, fill, text; hex, `rgb()`,
@@ -339,7 +343,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 353 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 356 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

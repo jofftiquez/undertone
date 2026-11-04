@@ -96,6 +96,12 @@ for (const [name, desc, you, claude, surface, text, shape = 'round', divider = '
   THEMES[name] = look(desc, side(shape, you, 'You'), side(shape, claude, 'Claude'), { chip: you, chipHover: claude, divider })
   SURFACE[name] = { surface, text }
 }
+// Green phosphor on black: ASCII frames down the left like a session log, shell-prompt labels.
+THEMES.hacker = look('Green phosphor',
+  side('classic', '#00FF41', 'you@localhost', { icon: '$', text: '#00FF41' }),
+  side('classic', '#008F11', 'claude@mainframe', { icon: '>', label: '#00FF41', text: '#33FF66' }),
+  { userAlign: 'left', divider: '=', chip: '#008F11', chipHover: '#00FF41' })
+SURFACE.hacker = { surface: '#0D0208', text: '#00FF41' }
 
 // Light and dark versions of one look, for "Light by day, dark by night".
 const DAY_NIGHT: [day: string, night: string][] = [

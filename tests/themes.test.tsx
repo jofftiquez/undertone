@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 const P = 'undertone'
 const CMD = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 const NOW = Date.UTC(2026, 10, 3, 8, 0)
-const THEMES = ["default", "sharp", "double", "bold", "dashed", "minimal", "terminal", "mono", "messenger", "messenger-light", "dracula", "catppuccin-mocha", "catppuccin-macchiato", "catppuccin-latte", "tokyo-night", "nord", "gruvbox", "gruvbox-light", "solarized-dark", "solarized-light", "one-dark", "monokai", "github-dark", "github-light", "rose-pine", "rose-pine-dawn", "everforest", "kanagawa", "ayu", "night-owl", "palenight", "synthwave-84", "cobalt2", "horizon", "material", "tomorrow-night", "ocean", "forest", "sunset"]
+const THEMES = ["default", "sharp", "double", "bold", "dashed", "minimal", "terminal", "mono", "messenger", "messenger-light", "dracula", "catppuccin-mocha", "catppuccin-macchiato", "catppuccin-latte", "tokyo-night", "nord", "gruvbox", "gruvbox-light", "solarized-dark", "solarized-light", "one-dark", "monokai", "github-dark", "github-light", "rose-pine", "rose-pine-dawn", "everforest", "kanagawa", "ayu", "night-owl", "palenight", "synthwave-84", "cobalt2", "horizon", "material", "tomorrow-night", "ocean", "forest", "sunset", "hacker"]
 function base(on: any) {
   on('clock.now', () => ({ value: NOW }))
   on('session.id', () => ({ value: 'sess-1' }))
