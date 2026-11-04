@@ -18,6 +18,11 @@
   <a href="#develop">Develop</a>
 </p>
 
+<p align="center">
+  <a href="docs/undertone.mp4"><img src="docs/undertone-video.jpg" width="720" alt="Watch the 30-second tour: the same Claude Code chat with undertone off and on"></a><br>
+  <sub>▶ <a href="docs/undertone.mp4">Watch the 30-second tour</a>: the same Claude Code chat with undertone off and on</sub>
+</p>
+
 ![undertone: bubbles, timestamps, folded tool rows and a fitted table](docs/hero.png)
 
 ---
