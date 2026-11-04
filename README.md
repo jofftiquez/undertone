@@ -207,6 +207,7 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
 - **✨ all green**: when a turn's last test run passed (`12 passed`, `test result: ok.`, Go's `ok`), its summary line says so.
 - **`/undertone-wrapped`**: a recap of the session: prompts, tool calls, top tools, busiest hour, longest turn, all-green turns, reactions, cost.
 - **`/undertone-find <words>`**: the messages that contain the words, with their times and the words in context.
+- **In the Claude desktop app**, diagrams, charts, figures, tables and code in your own colours are set in the app's monospaced font and laid out to the room that font really has (the app reports its width in narrower cells), so boxes close and bars stay inside the bubble. Vertical lines may show a hairline gap, since the app spaces lines further apart than a terminal.
 - **Wallpaper** (Claude desktop app only): a background in the theme's colours, if you turn it on.
 
 ### Small things that add up
@@ -338,7 +339,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 349 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 353 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

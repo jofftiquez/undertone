@@ -1370,6 +1370,9 @@ const PICTURE_HINT = [
 // The pane the last reply was drawn in. Under 100 columns (a split or tiled pane) the note names
 // its width, so Claude sizes pictures to fit instead of having them fall back to source.
 let pane: { cols: number; room: number } | undefined
+// The desktop app counts columns in cells of its code font, but sets monospaced text about 1.19
+// times wider, so art laid out to the reported width runs past the bubble: lay it out to 84%.
+const colsOf = (e: { surface?: string; viewport?: { columns: number } }) => { const c = e.viewport?.columns ?? 80; return e.surface === 'desktop' ? Math.floor(c * 0.84) : c }
 const paneHint = () => !pane || pane.cols >= 100 ? ''
   : ` This pane is only ${pane.cols} columns wide: keep diagrams narrow (top-down, short labels, at most 3 boxes side by side) and figures at most ${Math.max(20, pane.room - 2)} columns.`
 
@@ -2011,23 +2014,25 @@ function drawCode(ui: ElementTable, th: Theme, src: string, lang: string) {
   return (
     <Box flexDirection="column">
       {src.split('\n').map(l => {
-        if (!l) return <Text>{' '}</Text>
+        if (!l) return <Text mono>{' '}</Text>
         const r = codeLine(l, name, open)
         open = r.open
-        return <Text>{r.toks.map(t => <Text {...ink[t.kind]}>{t.text}</Text>)}</Text>
+        return <Text mono>{r.toks.map(t => <Text {...ink[t.kind]}>{t.text}</Text>)}</Text>
       })}
     </Box>
   )
 }
 
 // One rich block, or undefined to leave the part to the drawing it had before.
-function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string) {
+function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, th: Theme, room: number, hov: boolean, scope: string, prev?: Part) {
   const { Box, Text, Button, Markdown, Code } = ui
   const ink = readableOn(th.claude.fill, th.claude.border)
   const withCopy = (body: any, label: string, what: string, top = false) => {
-    if (opt<unknown>('textCopyButtons', true) === false) return body // lists, quotes and alerts without a copy button
+    // quotes and alerts back to back keep a line between them, as a copy row above would
+    const gap = (b: any) => top && prev?.kind === 'quote' ? <Box marginTop={1}>{b}</Box> : b
+    if (opt<unknown>('textCopyButtons', true) === false) return gap(body) // lists, quotes and alerts without a copy button
     const copy = <Button key={'copy-' + i} plain dimColor label={label} onPress={p => copyText($, part.copy, what, p.surface)} />
-    if (hov) return <Box flexDirection="column">{body}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box>
+    if (hov) return gap(<Box flexDirection="column">{body}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box>)
     return top ? <Box flexDirection="column"><Box justifyContent="flex-end">{copy}</Box>{body}</Box> : body
   }
   if (part.kind === 'heading') {
@@ -2188,7 +2193,7 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
   )
   const body = (
     <Box flexDirection="column" marginY={1}>
-      {rows.map(r => <Text>{r.map(sg => <Text {...styleOf(sg)}>{sg.text}</Text>)}</Text>)}
+      {rows.map(r => <Text mono>{r.map(sg => <Text {...styleOf(sg)}>{sg.text}</Text>)}</Text>)}
     </Box>
   )
   return hov
@@ -3131,12 +3136,13 @@ export const register: Register = (on, options) => {
     const t = first ? await timeOf($, e.requestId, text, th.preciseTime) : ''
     // A picture's source is short and its drawing wide: a reply with one takes its whole share.
     const w = /^\s*(`{3,}|~{3,})\s*(mermaid|figure)\b/m.test(text) && richText()
-      ? Math.max(12, Math.floor((e.viewport?.columns ?? 80) * th.claudeShare))
+      ? Math.max(12, Math.floor(colsOf(e) * th.claudeShare))
       // code draws indented by 2, so a reply with a code block needs those 2 cells more
-      : bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ reply ] [ react ] [ copy ]`, e.viewport?.columns, th.claudeShare, chrome(th.claude, th.padding) + (/^\s*(`{3,}|~{3,})/m.test(text) && richText() ? 2 : 0))
+      : bubbleWidth(text, `${sideLabel(th.claude)}  ${t}   ☆  [ reply ] [ react ] [ copy ]`, colsOf(e), th.claudeShare, chrome(th.claude, th.padding) + (/^\s*(`{3,}|~{3,})/m.test(text) && richText() ? 2 : 0))
     const FOLD_LINES = th.foldLines
     const lines = text.split('\n')
-    const foldId = `${e.requestId ?? ''}:${text.length}`
+    // keyed by the reply itself: the desktop app may draw one reply under a new requestId
+    const foldId = `${textKey(text)}:${text.length}`
     const isLong = lines.length > FOLD_LINES
     const isOpen = isLong && ((await $.state.get({ ...MORE, id: foldId })).value ?? opt<string>('folds', 'closed') === 'open')
     let shown = text
@@ -3156,7 +3162,7 @@ export const register: Register = (on, options) => {
     if (rich && !where.cwd) { where.cwd = await $.session.cwd().catch(() => ''); where.home = await homeDir($).catch(() => '') }
     const parts = splitReply(shown, rich)
     const room = w - chrome(th.claude, th.padding)
-    pane = { cols: e.viewport?.columns ?? 80, room: Math.max(12, Math.floor((e.viewport?.columns ?? 80) * th.claudeShare)) - chrome(th.claude, th.padding) }
+    pane = { cols: colsOf(e), room: Math.max(12, Math.floor(colsOf(e) * th.claudeShare)) - chrome(th.claude, th.padding) }
     // A typeset formula needs a real colour: the theme's text where it has one, else dark ink on a
     // light theme and light ink otherwise (the terminal's own background can't be read).
     const mathInk = /^#[0-9a-f]{6}$/i.test(th.claude.text ?? '') ? th.claude.text! : /light|latte|dawn/.test(th.name) ? '#333333' : '#d7dae0'
@@ -3199,7 +3205,7 @@ export const register: Register = (on, options) => {
               const block = <Box paddingLeft={2} marginY={1}>{body}</Box>
               return hov ? <Box flexDirection="column">{block}{reveal(Box, hov, scope, 'copy-reveal-' + i, copy)}</Box> : <Box flexDirection="column"><Box justifyContent="flex-end">{copy}</Box>{block}</Box>
             }
-            const drawn = rich ? richPart($, $.ui.resolve(e), part, i, th, room, hov, scope) : undefined
+            const drawn = rich ? richPart($, $.ui.resolve(e), part, i, th, room, hov, scope, parts[i - 1]) : undefined
             if (drawn) return drawn
             if (part.kind === 'md') return noteMd($, Markdown, part.md, part.notes, 'md-' + i)
             if (part.kind === 'table') {
@@ -3223,7 +3229,7 @@ export const register: Register = (on, options) => {
               const body = (
                 <Box flexDirection="column" marginY={1}>
                   {lines.map(line => (
-                    <Text>
+                    <Text mono>
                       {line.map(sg => <Text {...cellInk(sg)} italic={!sg.rule && sg.italic} underline={!sg.rule && sg.link}>{sg.text}</Text>)}
                     </Text>
                   ))}
