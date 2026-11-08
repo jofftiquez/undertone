@@ -158,3 +158,35 @@ test('a reply with code is 2 cells wider, so its longest code line does not wrap
   expect(bubble.props.width).toBeGreaterThanOrEqual(line.length + 2 + 4) // the line, its indent, border and padding
   await ui.unmount()
 })
+
+test('a line underlined with === or --- is a heading, as Claude Code draws it', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, 'Release plan\n============\n\nBody.\n\nSteps\n-----\n\nMore.')
+  const texts = (await all(ui, 'Text')).map(t => t.text as string)
+  expect(texts.some(t => /=====/.test(t))).toBe(false)
+  expect(texts.some(t => /^-----$/.test(t))).toBe(false)
+  expect(texts).toContain('Release')
+  expect(texts.some(t => /━━━/.test(t))).toBe(true) // the H2 banner rule under "Steps"
+  await ui.unmount()
+})
+
+test('entities draw as their characters, except inside code', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, 'Tom &amp; Jerry &lt;b&gt; &copy; &#8594; `&amp;` and &#27;')
+  const texts = (await all(ui, 'Text')).map(t => t.text as string)
+  for (const w of ['&', '<b>', '©', '→']) expect(texts).toContain(w)
+  expect(texts).toContain('&amp;') // inline code keeps it
+  expect(texts).toContain('&#27;') // a control character stays written out
+  await ui.unmount()
+})
+
+test('two trailing spaces or a backslash break the line', { options: OPTS }, async ($, on) => {
+  machine(on)
+  await start($)
+  const ui = await mount($, 'line one  \nline two\\\nline three\nsame line')
+  const rows = (await all(ui, 'Text')).map(t => t.text as string).filter(t => /^line/.test(t) && / /.test(t))
+  expect(rows).toEqual(['line one', 'line two', 'line three same line'])
+  await ui.unmount()
+})

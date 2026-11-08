@@ -955,6 +955,14 @@ function charWidth(cp: number) {
 }
 const strWidth = (t: string) => { let w = 0; for (const ch of t) w += charWidth(ch.codePointAt(0)!); return w }
 
+// HTML entities as their characters (&amp; → &, &#8594; → →), as Claude Code's Markdown draws them;
+// control characters stay written out. ponytail: the common named ones only.
+const ENT: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', copy: '©', reg: '®', trade: '™', hellip: '…', mdash: '—', ndash: '–', laquo: '«', raquo: '»', middot: '·', deg: '°', times: '×', rarr: '→', larr: '←' }
+const unEntity = (t: string) => t.replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (m, d?: string, h?: string, n?: string) => {
+  const cp = d ? Number(d) : h ? parseInt(h, 16) : -1
+  if (cp >= 0) return cp > 0x9f && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) || (cp >= 0x20 && cp < 0x7f) ? String.fromCodePoint(cp) : m
+  return ENT[n!] ?? m
+})
 type Seg = { text: string; bold?: boolean; code?: boolean; italic?: boolean; link?: boolean; strike?: boolean; num?: boolean; path?: boolean }
 // Inline markdown in a cell → styled words: **bold**, *italic*, `code`, [text](url).
 function cellWords(cell: string): Seg[] {
@@ -965,7 +973,7 @@ function cellWords(cell: string): Seg[] {
     const [text, style]: [string, Partial<Seg>] = m[1] !== undefined ? [m[1], { bold: true }] : m[2] !== undefined ? [m[2], { code: true }]
       : m[3] !== undefined ? [m[3], { link: true }] : m[4] !== undefined ? [m[4], { italic: true }] : m[5] !== undefined ? [m[5], { strike: true }] : [m[6] ?? m[0], {}]
     // split into words, keeping the style; spaces become their own segments
-    for (const part of text.split(/(\s+)/)) if (part) segs.push({ text: /^\s+$/.test(part) ? ' ' : part, ...style })
+    for (const part of (style.code ? text : unEntity(text)).split(/(\s+)/)) if (part) segs.push({ text: /^\s+$/.test(part) ? ' ' : part, ...style })
   }
   return segs
 }
@@ -1227,15 +1235,20 @@ function drawParagraphs($: EngineInterface, ui: ElementTable, th: Theme, md: str
   const paras = md.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
   return (
     <Box flexDirection="column">
-      {paras.map((p, k) => {
-        const flat = p.replace(/\s*\n\s*/g, ' ')
-        const linked = opt<unknown>('clickPaths', true) !== false && !isRtl(p) && textWords(flat).some(sg => sg.path && absPath(sg.text))
-        return (
-          <Box marginTop={k ? 1 : 0} justifyContent={isRtl(p) ? 'flex-end' : 'flex-start'}>
-            {linked ? drawLinkedWords($, ui, th, flat, `${key}-${k}`) : drawWords(ui, th, flat)}
-          </Box>
-        )
-      })}
+      {paras.map((p, k) => (
+        // a line ending in two spaces or a backslash breaks there (a hard line break)
+        <Box flexDirection="column" marginTop={k ? 1 : 0}>
+          {p.split(/(?: {2,}|\\)\n/).map((row, r) => {
+            const flat = row.replace(/\s*\n\s*/g, ' ')
+            const linked = opt<unknown>('clickPaths', true) !== false && !isRtl(p) && textWords(flat).some(sg => sg.path && absPath(sg.text))
+            return (
+              <Box justifyContent={isRtl(p) ? 'flex-end' : 'flex-start'}>
+                {linked ? drawLinkedWords($, ui, th, flat, `${key}-${k}-${r}`) : drawWords(ui, th, flat)}
+              </Box>
+            )
+          })}
+        </Box>
+      ))}
     </Box>
   )
 }
@@ -1248,6 +1261,9 @@ const richText = () => opt<unknown>('richText', true) !== false
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/
 const RULE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/
+// A line underlined with === (H1) or --- (H2). ponytail: a one-line paragraph only; a longer one
+// keeps drawing as text over a rule.
+const SETEXT = /^ {0,3}(=+|-+)\s*$/
 const ALERTS: Record<string, { label: string; ink: string }> = {
   NOTE: { label: 'Note', ink: 'suggestion' }, TIP: { label: 'Tip', ink: 'success' }, IMPORTANT: { label: 'Important', ink: 'planMode' },
   WARNING: { label: 'Warning', ink: 'warning' }, CAUTION: { label: 'Caution', ink: 'error' },
@@ -2395,6 +2411,11 @@ function splitReply(text: string, rich = false): Part[] {
       flush()
       const m = HEADING.exec(line)!
       parts.push({ kind: 'heading', md: line, copy: m[2]!, level: m[1]!.length })
+    } else if (rich && line.trim() && !(lines[i - 1] ?? '').trim() && SETEXT.test(lines[i + 1] ?? '') && !LIST_ITEM.test(line) && !RULE.test(line)) {
+      flush()
+      const level = lines[i + 1]!.includes('=') ? 1 : 2
+      parts.push({ kind: 'heading', md: line + '\n' + lines[i + 1], copy: line.trim(), level })
+      i++
     } else if (rich && RULE.test(line)) {
       flush()
       parts.push({ kind: 'rule', md: line, copy: line })
@@ -3276,6 +3297,11 @@ export const register: Register = (on, options) => {
     return copyOn() ? reply : stripCopies(reply)
   })
 
+  // Terminal control sequences in a tool's command or output (a colour code, a title change) make
+  // Claude Code refuse the row, so they're dropped from what the row draws.
+  const CTRL = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]?|[\x00-\x08\x0b-\x1f\x7f-\x9f]/g
+  const clean = <T,>(v: T): T => (typeof v === 'string' ? v.replace(CTRL, '') : Array.isArray(v) ? v.map(clean)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clean(x)])) : v) as T
   // Tool calls: one dim line each. [+] opens a row; ctrl+o (isExpanded) shows every row in full.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     if (!(await isOn($, e))) return next(e) // switched off: Claude Code's own look
@@ -3283,7 +3309,7 @@ export const register: Register = (on, options) => {
     if (e.props.isExpanded) return next(e)
     if (await isFolded($, await msOf($, e.props.tool_use_id))) { const { Box: Bx } = $.ui.resolve(e); return <Bx /> }
     if (isAgentTool(e.props.tool)) return drawAgent($, e)
-    const drawn = drawRows($, $.ui.resolve(e), [await rowOf($, e.props, e.viewport?.columns)])
+    const drawn = drawRows($, $.ui.resolve(e), [await rowOf($, clean(e.props), e.viewport?.columns)])
     return copyOn() ? drawn : stripCopies(drawn)
   })
   // Results: the opened row draws the output itself, so this stays hidden unless ctrl+o.
@@ -3300,7 +3326,7 @@ export const register: Register = (on, options) => {
     if (opt<unknown>('toolRows', true) === false) return next(e) // Claude Code's own tool rows
     if (e.props.isExpanded) return next(e)
     if (await isFolded($, await msOf($, e.props.calls[0]?.tool_use_id))) { const { Box: Bx } = $.ui.resolve(e); return <Bx /> }
-    const calls = e.props.calls
+    const calls = clean(e.props.calls)
     const gid = 'g:' + (calls[0]?.tool_use_id ?? '')
     const anyFailed = calls.some(c => c.isErrored && !c.isInterrupted)
     const isOpen = (await $.state.get({ ...OPEN, id: gid })).value ?? anyFailed

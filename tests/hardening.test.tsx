@@ -235,3 +235,15 @@ test('slash commands named in a prompt are highlighted; paths and unknown names 
   expect((await ui.find({ type: 'Text', text: /try \/undertone-theme\. Logs are in \/tmp\/x and \/nope/ }))).toBeDefined()
   await ui.unmount()
 })
+
+test('a tool row with terminal control sequences in its command or output still draws as a row', async ($, on) => {
+  machine(on)
+  await start($)
+  const call = { tool_use_id: 'esc1', tool: 'Bash', input: { command: 'echo \x1b]0;title\x07\x1b[2Jhi' }, isRunning: false, isErrored: true, isInterrupted: false, output: 'err \x1b[31mred\x1b[0m' }
+  const ui = await $.ui.mount({ plugin: P, surface: 'terminal', component: 'ToolUse', requestId: 'esc1', props: call } as any)
+  const texts = ((await ui.findAll({ type: 'Text' })) as any[]).map(t => t.text as string)
+  expect(texts.some(t => t.includes('echo hi'))).toBe(true)
+  expect(texts.some(t => t.includes('err red'))).toBe(true)
+  expect(texts.some(t => /\x1b/.test(t))).toBe(false)
+  await ui.unmount()
+})
