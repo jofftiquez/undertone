@@ -1,6 +1,6 @@
 {
   "name": "undertone",
-  "version": "0.26.0",
+  "version": "0.26.1",
   "description": "Undertone: the conversation, without the noise. Chat bubbles with timestamps; tool calls fold into a quiet undertone, one click away.",
   "author": {
     "name": "Joff Tiquez",
