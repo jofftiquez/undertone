@@ -22,6 +22,7 @@ function machine(on: any) {
   on('session.usage', () => ({ value: { startedAt: NOW, context: { window: 200000 }, rateLimits: [] } }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: '+0800\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('prompt.submit', (_: any, e: any) => { sent.push({ context: e.context }); return e })
+  on('session.surfaces', () => ({ value: ['terminal'] }))
   on('ui.render', ($: any, e: any) => { const { Text } = $.ui.resolve(e); return <Text>ENGINE</Text> })
   return { copies, sent }
 }
@@ -142,6 +143,21 @@ test('your prompt carries the note about pictures; a slash command does not', as
 test('the note can be turned off', { options: { diagramHints: false } }, async ($, on) => {
   const { sent } = machine(on)
   await start($)
+  await $.prompt.submit({ text: 'explain the flow', wait: false, origin: { kind: 'composer' } })
+  expect(sent.at(-1)?.context?.some(c => /```figure blocks/.test(c)) ?? false).toBe(false)
+})
+
+test('no note on a surface the surfaces setting leaves out', { options: { surfaces: 'desktop' } }, async ($, on) => {
+  const { sent } = machine(on)
+  await start($)
+  await $.prompt.submit({ text: 'explain the flow', wait: false, origin: { kind: 'composer' } })
+  expect(sent.at(-1)?.context?.some(c => /```figure blocks/.test(c)) ?? false).toBe(false)
+})
+
+test('no note after /undertone off', async ($, on) => {
+  const { sent } = machine(on)
+  await start($)
+  await $.command.run({ command: 'undertone', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as any)
   await $.prompt.submit({ text: 'explain the flow', wait: false, origin: { kind: 'composer' } })
   expect(sent.at(-1)?.context?.some(c => /```figure blocks/.test(c)) ?? false).toBe(false)
 })

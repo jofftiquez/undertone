@@ -829,9 +829,9 @@ async function copyRich($: EngineInterface, html: string, plain: string, what: s
     r = await ps($, 'Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.DataObject; $d.SetData([System.Windows.Forms.DataFormats]::Html, $p.html); $d.SetText($p.text); [System.Windows.Forms.Clipboard]::SetDataObject($d, $true)', { html: cf, text: plain }).catch(() => ({ exitCode: 1 }))
   } else {
     // macOS: HTML_JXA (an ASCII-only script: osascript can misread AppleScript's «» outside a
-    // UTF-8 locale); Linux: CopyQ, which serves both formats.
+    // UTF-8 locale), read from stdin (see PNG_JXA); Linux: CopyQ, which serves both formats.
     r = await run($, ['sh', '-c',
-      'if [ "$(uname)" = Darwin ]; then osascript -l JavaScript -e "$1" "$2" "$3"; ' +
+      'if [ "$(uname)" = Darwin ]; then printf %s "$1" | osascript -l JavaScript - "$2" "$3"; ' +
       'elif command -v copyq >/dev/null; then copyq copy text/html "$2" text/plain "$3" >/dev/null; else exit 127; fi', 'sh', HTML_JXA, html, plain]).catch(() => ({ exitCode: 1 }))
   }
   if (r.exitCode === 0) $.ui.toast(`Copied ${what} (HTML and text)`)
@@ -884,7 +884,7 @@ async function copyPng($: EngineInterface, lines: Run[][], th: Theme, what: stri
     ? await ps($, 'Add-Type -AssemblyName System.Windows.Forms, System.Drawing; $f = New-Object System.Drawing.Font("Consolas", 11); $m = [System.Drawing.Graphics]::FromImage((New-Object System.Drawing.Bitmap 1, 1)).MeasureString($p.text, $f); ' +
       '$b = New-Object System.Drawing.Bitmap ([int]$m.Width + 48), ([int]$m.Height + 48); $g = [System.Drawing.Graphics]::FromImage($b); $g.Clear([System.Drawing.ColorTranslator]::FromHtml($p.bg)); $g.TextRenderingHint = "AntiAliasGridFit"; ' +
       '$g.DrawString($p.text, $f, (New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml($p.fg))), 24, 24); [System.Windows.Forms.Clipboard]::SetImage($b)', { text: art, fg, bg }).catch(() => ({ exitCode: 1 }))
-    : await run($, ['sh', '-c', '[ "$(uname)" = Darwin ] || exit 127; osascript -l JavaScript -e "$1" "$2"', 'sh', PNG_JXA, JSON.stringify({ lines: runs, bg, cols })]).catch(() => ({ exitCode: 1 }))
+    : await run($, ['sh', '-c', '[ "$(uname)" = Darwin ] || exit 127; printf %s "$1" | osascript -l JavaScript - "$2"', 'sh', PNG_JXA, JSON.stringify({ lines: runs, bg, cols })]).catch(() => ({ exitCode: 1 }))
   if (r.exitCode === 0) $.ui.toast(`Copied ${what} as a picture`)
   else { await copyText($, art, what + ' as text', surface); $.ui.toast(r.exitCode === 127 ? 'A picture copy needs macOS or Windows; copied the text' : 'Could not make the picture; copied the text') }
 }
@@ -900,6 +900,8 @@ const HTML_JXA = [
 ].join('\n')
 // macOS: draw the text into an image with AppKit and put it on the pasteboard.
 // Each run is drawn on its own at its cell (the bridge osascript has cannot build attributed strings).
+// Both scripts go to osascript on stdin: endpoint-security agents kill `-l JavaScript -e` scripts of
+// 1000 bytes or more (this one is over), and leave stdin alone.
 const PNG_JXA = [
   'function run(argv) {',
   '  ObjC.import("AppKit")',
@@ -2452,6 +2454,12 @@ async function isOn($: EngineInterface, e?: { surface?: string }) {
   const surfaces = String(opt('surfaces', 'all')).toLowerCase().split(/[\s,]+/).filter(Boolean)
   return !e?.surface || surfaces.includes('all') || surfaces.includes(e.surface)
 }
+// Whether undertone draws on some surface of this session: the note about pictures is only for those.
+async function drawsAnywhere($: EngineInterface) {
+  const all = await $.session.surfaces().catch(() => [] as readonly string[])
+  for (const surface of all.length ? all : [undefined]) if (await isOn($, { surface })) return true
+  return false
+}
 // Settings for the parts of a reply undertone draws.
 const copyOn = () => opt<unknown>('copyButtons', true) !== false
 // Without copy buttons: the drawing with every copy button (and the dim "copy" before a copy row)
@@ -2922,7 +2930,7 @@ export const register: Register = (on, options) => {
     await $.state.set(TURN, tally)
     await $.state.set(TURN_TOOLS, 0)
     // A note only the model reads, so Claude reaches for a picture when one would help.
-    if (!e.command && richText() && opt<unknown>('diagramHints', true) !== false) return next({ ...e, context: [...(e.context ?? []), PICTURE_HINT + paneHint()] })
+    if (!e.command && richText() && opt<unknown>('diagramHints', true) !== false && await drawsAnywhere($)) return next({ ...e, context: [...(e.context ?? []), PICTURE_HINT + paneHint()] })
     return next(e)
   })
   on('turn.complete', async ($, e, next) => {
