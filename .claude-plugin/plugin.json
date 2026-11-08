@@ -493,7 +493,7 @@
     "copyButtons": {
       "type": "boolean",
       "title": "Copy buttons",
-      "description": "Off hides every copy button (/undertone copy still works)",
+      "description": "Off hides every copy and save button (/undertone copy and /undertone save still work)",
       "default": true
     },
     "textCopyButtons": {
