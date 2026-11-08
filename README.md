@@ -105,6 +105,13 @@ Five ways to copy a table, in the row above it, `copy [ md ] [ cells ] [ html ] 
 [CopyQ](https://copyq.readthedocs.io/) running; `[ png ]` on macOS and Windows (on Windows in one colour). Elsewhere, and over SSH, they copy
 text and say so. Pictures (charts, diagrams, figures) get `copy [ source ] [ art ] [ png ]`, the picture again in its colours.
 
+**Save as a file**: `[ save… ]` at the end of a copy row turns it into a save row, `save [ md ] [ csv ] [ html ] [ art ] [ png ]`,
+and `[ copy… ]` turns it back. Each button saves that format to `~/Downloads` (your home folder without one), named for what it
+is and when (`table-2026-11-08-1432.csv`), and the toast shows the path. `[ csv ]` quotes cells properly and keeps a cell that
+looks like a formula from running in a spreadsheet; `[ html ]` saves a whole page. Pictures save their source (`.mmd`), art or
+PNG; code blocks and formulas get a `[ save ]` of their own, under the code's extension (`.ts`, `.py`, `.sh`…) or `.tex`.
+PNG files need macOS or Windows. The file is written where Claude Code runs, so there is no save over SSH or on the phone.
+
 ### Rich text
 
 Claude's replies draw block by block, in the theme's colours:
@@ -183,7 +190,7 @@ When a picture explains better than prose, Claude can draw one, and undertone dr
     <td><img src="docs/footnotes.png" alt="A sentence with two superscript marks, and their notes under a short rule"></td>
     <td><img src="docs/footnote-hover.png" alt="Pointing at a footnote mark lights the mark and its note together"></td>
   </tr></table>
-- **Copy without the mouse**: `/undertone copy` copies the last reply, `/undertone copy code` its last code block.
+- **Copy without the mouse**: `/undertone copy` copies the last reply, `/undertone copy code` its last code block; `/undertone save` and `/undertone save code` save them to `~/Downloads`.
 
 ### Like a chat app
 
@@ -267,6 +274,7 @@ breaking the bubble.
 | `/undertone setup` | Pick theme, bubble style, shapes, padding, spacing, alignment, buttons and time format, with a live preview |
 | `/undertone off` · `/undertone on` | Claude Code's own look for this session, and back |
 | `/undertone copy` · `/undertone copy code` | Copy the last reply, or its last code block |
+| `/undertone save` · `/undertone save code` | Save the last reply (`.md`), or its last code block, to `~/Downloads` |
 | `/undertone-theme [name]` | Theme gallery, or switch theme; `reset` returns to the `/config` choice |
 | `/undertone-pins` | Your pinned messages, in time order |
 | `/undertone-export [path]` | Save the chat as Markdown with timestamps (default: `~/Downloads`) |
@@ -348,7 +356,7 @@ Don't also install the published copy on the same machine, or both will draw eve
 
 ```bash
 claude plugin validate .   # what the engine will load, and what it would refuse
-claude plugin test .       # 362 tests: every feature, every theme in every style, tables at 4 widths
+claude plugin test .       # 370 tests: every feature, every theme in every style, tables at 4 widths
 ```
 
 CI runs `validate` and `test` on every push and pull request, and weekly against the latest Claude Code. The type check needs the engine types Claude Code

@@ -873,6 +873,13 @@ const artOf = (lines: Run[][]) => lines.map(l => l.map(r => r.text).join('').tri
 async function copyPng($: EngineInterface, lines: Run[][], th: Theme, what: string, surface?: RenderSurface) {
   const art = artOf(lines)
   if (await overSsh($)) { await copyText($, art, what + ' as text (a picture copy needs a local clipboard)', surface); return }
+  const r = await drawPng($, lines, th)
+  if (r.exitCode === 0) $.ui.toast(`Copied ${what} as a picture`)
+  else { await copyText($, art, what + ' as text', surface); $.ui.toast(r.exitCode === 127 ? 'A picture copy needs macOS or Windows; copied the text' : 'Could not make the picture; copied the text') }
+}
+// The drawing as a PNG: on the clipboard, or in the file `out`. Exit 127 where there is no helper (Linux).
+async function drawPng($: EngineInterface, lines: Run[][], th: Theme, out?: string): Promise<{ exitCode: number }> {
+  const art = artOf(lines)
   const light = /light|latte|dawn/.test(th.name)
   const fg = hexOf(th.claude.text ?? SURFACE[th.name]?.text, light) ?? (light ? '#24292f' : '#d7dae0')
   const bg = hexOf(optColor('pngBackgroundColor', SURFACE[th.name]?.surface ?? (light ? '#f6f8fa' : '#1e2027')), light) ?? (light ? '#f6f8fa' : '#1e2027')
@@ -883,11 +890,83 @@ async function copyPng($: EngineInterface, lines: Run[][], th: Theme, what: stri
   const r = (await windows($))
     ? await ps($, 'Add-Type -AssemblyName System.Windows.Forms, System.Drawing; $f = New-Object System.Drawing.Font("Consolas", 11); $m = [System.Drawing.Graphics]::FromImage((New-Object System.Drawing.Bitmap 1, 1)).MeasureString($p.text, $f); ' +
       '$b = New-Object System.Drawing.Bitmap ([int]$m.Width + 48), ([int]$m.Height + 48); $g = [System.Drawing.Graphics]::FromImage($b); $g.Clear([System.Drawing.ColorTranslator]::FromHtml($p.bg)); $g.TextRenderingHint = "AntiAliasGridFit"; ' +
-      '$g.DrawString($p.text, $f, (New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml($p.fg))), 24, 24); [System.Windows.Forms.Clipboard]::SetImage($b)', { text: art, fg, bg }).catch(() => ({ exitCode: 1 }))
-    : await run($, ['sh', '-c', '[ "$(uname)" = Darwin ] || exit 127; printf %s "$1" | osascript -l JavaScript - "$2"', 'sh', PNG_JXA, JSON.stringify({ lines: runs, bg, cols })]).catch(() => ({ exitCode: 1 }))
-  if (r.exitCode === 0) $.ui.toast(`Copied ${what} as a picture`)
-  else { await copyText($, art, what + ' as text', surface); $.ui.toast(r.exitCode === 127 ? 'A picture copy needs macOS or Windows; copied the text' : 'Could not make the picture; copied the text') }
+      '$g.DrawString($p.text, $f, (New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml($p.fg))), 24, 24); if ($p.out) { $b.Save($p.out, [System.Drawing.Imaging.ImageFormat]::Png) } else { [System.Windows.Forms.Clipboard]::SetImage($b) }', { text: art, fg, bg, out: out ?? '' }).catch(() => ({ exitCode: 1 }))
+    : await run($, ['sh', '-c', '[ "$(uname)" = Darwin ] || exit 127; printf %s "$1" | osascript -l JavaScript - "$2"', 'sh', PNG_JXA, JSON.stringify({ lines: runs, bg, cols, out: out ?? '' })]).catch(() => ({ exitCode: 1 }))
+  return r
 }
+
+// ---------- Save as ----------
+// A block saved as a file in Downloads (the home folder without one), named for what it is and
+// when, with -2, -3… when the name is taken. The file is written where Claude Code runs, so
+// [ save ] is drawn only on local surfaces and not over SSH (see rowCtx).
+async function downloadsDir($: EngineInterface) {
+  const home = await homeDir($), sep = await sepOf($)
+  return (await $.fs.exists(home + sep + 'Downloads').catch(() => false)) ? home + sep + 'Downloads' : home
+}
+async function freePath($: EngineInterface, base: string, ext: string) {
+  const d = new Date(await $.clock.now())
+  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
+  const stem = (await downloadsDir($)) + (await sepOf($)) + `${base}-${stamp}`
+  for (let n = 1; n < 100; n++) {
+    const path = `${stem}${n > 1 ? '-' + n : ''}.${ext}`
+    if (!(await $.fs.exists(path).catch(() => false))) return path
+  }
+  return `${stem}-${Date.now()}.${ext}`
+}
+async function saveText($: EngineInterface, base: string, ext: string, text: string) {
+  const path = await freePath($, base, ext)
+  const ok = await $.fs.write(path, text).then(() => true, () => false)
+  $.ui.toast(ok ? `Saved ${path}` : `Could not save ${path}`)
+  return ok ? path : undefined
+}
+async function savePng($: EngineInterface, base: string, lines: Run[][], th: Theme) {
+  const path = await freePath($, base, 'png')
+  const r = await drawPng($, lines, th, path)
+  $.ui.toast(r.exitCode === 0 ? `Saved ${path}` : r.exitCode === 127 ? 'Saving a picture needs macOS or Windows' : 'Could not make the picture')
+}
+// A code block's file extension, from its language. ponytail: common names only; a short
+// language name is its own extension, anything else is .txt.
+const EXT: Record<string, string> = { typescript: 'ts', javascript: 'js', python: 'py', bash: 'sh', shell: 'sh', zsh: 'sh', console: 'sh', ruby: 'rb', rust: 'rs', kotlin: 'kt', csharp: 'cs', 'c#': 'cs', 'c++': 'cpp', markdown: 'md', yml: 'yaml', powershell: 'ps1', golang: 'go', text: 'txt', plaintext: 'txt' }
+const codeExt = (lang = '') => { const l = lang.toLowerCase(); return EXT[l] ?? (/^[a-z0-9]{1,6}$/.test(l) ? l : 'txt') }
+// A table as CSV (RFC 4180). A cell that starts like a formula (= + @, or - before a non-number)
+// gets a leading ' so a spreadsheet shows it rather than running it.
+const csvCell = (v: string) => {
+  const safe = /^[=+@\t\r]|^-(?![\d.])/.test(v) ? "'" + v : v
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
+}
+const tableCsv = (t: Table) => [t.head, ...t.rows].map(r => r.map(c => csvCell(cellText(c))).join(',')).join('\r\n') + '\r\n'
+const htmlDoc = (title: string, body: string) => `<!doctype html>\n<html><head><meta charset="utf-8"><title>${title}</title></head><body>\n${body}\n</body></html>\n`
+
+// One format of a copy row: what it copies, and what it saves (its label there when it differs).
+type Fmt = { key: string; label: string; save?: string; ext: string; what: string; text: () => string; file?: () => string; html?: () => string; runs?: Run[][] }
+function copyAs($: EngineInterface, f: Fmt, th: Theme, surface?: RenderSurface) {
+  return f.runs ? copyPng($, f.runs, th, f.what, surface) : f.html ? copyRich($, f.html(), f.text(), f.what, surface) : copyText($, f.text(), f.what, surface)
+}
+function saveAs($: EngineInterface, f: Fmt, base: string, th: Theme) {
+  return f.runs ? savePng($, base, f.runs, th) : saveText($, base, f.ext, (f.file ?? f.text)())
+}
+// The reply being drawn: which of its blocks show their save row, and whether saving is offered
+// at all. Set by the AssistantMessage hook right before its blocks draw (synchronously), so the
+// block drawers need no extra parameters.
+const SAVE_ROWS = { plugin: 'undertone', key: 'saveRows' } as const
+let rowCtx: { id: string; saving: number[]; canSave: boolean } = { id: '', saving: [], canSave: false }
+// A copy row, `copy [ md ] [ cells ] … [ save… ]`, which [ save… ] turns into `save [ md ] [ csv ] … [ copy… ]`.
+function actionRow($: EngineInterface, ui: ElementTable, i: number, th: Theme, base: string, fmts: Fmt[]) {
+  const { Box, Text, Button } = ui
+  const { id, saving: list, canSave } = rowCtx
+  const saving = canSave && list.includes(i)
+  const flip = () => $.state.set({ ...SAVE_ROWS, id }, saving ? list.filter(n => n !== i) : [...list, i])
+  return (
+    <Box columnGap={1}>
+      <Text dimColor>{saving ? 'save' : 'copy'}</Text>
+      {fmts.map(f => <Button key={`${f.key}-${i}`} plain dimColor label={`[ ${saving ? f.save ?? f.label : f.label} ]`} onPress={p => (saving ? saveAs($, f, base, th) : copyAs($, f, th, p.surface))} />)}
+      {canSave && <Button key={'save-' + i} plain dimColor label={saving ? '[ copy… ]' : '[ save… ]'} onPress={flip} />}
+    </Box>
+  )
+}
+// One-format blocks (code, a formula) get a plain [ save ] beside their copy button.
+const saveButton = ($: EngineInterface, ui: ElementTable, i: number, base: string, ext: string, text: string) =>
+  rowCtx.canSave ? <ui.Button key={'save-' + i} plain dimColor label="[ save ]" onPress={() => saveText($, base, ext, text)} /> : null
 // macOS: HTML and its plain-text twin on the pasteboard.
 const HTML_JXA = [
   'function run(argv) {',
@@ -922,6 +1001,12 @@ const PNG_JXA = [
   '  p.lines.forEach((line, n) => line.forEach(([t, c, b, x]) =>',
   '    $(t).drawAtPointWithAttributes($.NSMakePoint(pad + x * cell.width, h - pad - (n + 1) * cell.height), attrsOf(c, b))))',
   '  img.unlockFocus',
+  '  if (p.out) {',
+  '    const rep = $.NSBitmapImageRep.imageRepWithData(img.TIFFRepresentation)',
+  '    const png = rep.representationUsingTypeProperties(4, $.NSDictionary.dictionary)', // 4: NSBitmapImageFileTypePNG
+  '    if (!png.writeToFileAtomically(p.out, true)) throw new Error("write")',
+  '    return',
+  '  }',
   '  const pb = $.NSPasteboard.generalPasteboard',
   '  pb.clearContents',
   '  if (!pb.writeObjects($.NSArray.arrayWithObject(img))) throw new Error("pasteboard")',
@@ -1005,7 +1090,8 @@ const segsWidth = (segs: Seg[]) => segs.reduce((n, s) => n + strWidth(s.text), 0
 const plainCell = (cell: string) => cellWords(cell).map(s => s.text).join('')
 // The table as tab-separated plain text, markup stripped: Slack and spreadsheets (Excel, Google
 // Sheets, Numbers) paste it as a real table. ponytail: link URLs drop, as Slack drops them too.
-const tableCells = (t: Table) => [t.head, ...t.rows].map(r => r.map(c => plainCell(c.replace(/<br\s*\/?>/gi, ' ')).replace(/\s+/g, ' ').trim()).join('\t')).join('\n')
+const cellText = (c: string) => plainCell(c.replace(/<br\s*\/?>/gi, ' ')).replace(/\s+/g, ' ').trim()
+const tableCells = (t: Table) => [t.head, ...t.rows].map(r => r.map(cellText).join('\t')).join('\n')
 
 type Table = { head: string[]; align: ('left' | 'center' | 'right')[]; rows: string[][] }
 function splitRow(line: string) {
@@ -2147,7 +2233,12 @@ function richPart($: EngineInterface, ui: ElementTable, part: Part, i: number, t
     if (picture) return picture
   }
   if (part.kind === 'code') {
-    const copy = <Button key={'copy-' + i} plain dimColor label="[ copy code ]" onPress={p => copyText($, part.copy, 'code', p.surface)} />
+    const copy = (
+      <Box columnGap={1}>
+        <Button key={'copy-' + i} plain dimColor label="[ copy code ]" onPress={p => copyText($, part.copy, 'code', p.surface)} />
+        {saveButton($, ui, i, 'code', codeExt(part.lang), part.copy.endsWith('\n') ? part.copy : part.copy + '\n')}
+      </Box>
+    )
     return (
       <Box flexDirection="column" marginTop={i ? 1 : 0}>
         <Box justifyContent="space-between">
@@ -2207,14 +2298,11 @@ function drawPicture($: EngineInterface, ui: ElementTable, part: Part, i: number
   const styleOf = (sg: Seg2): Omit<Run, 'text'> => !sg.role ? { color: diagramText } : sg.role.startsWith('ink:') ? { color: sg.role.slice(4) } : roleInk[sg.role] ?? {}
   const runs = rows.map(r => r.map(sg => ({ text: sg.text, ...styleOf(sg) })))
   const art = artOf(runs)
-  const copy = (
-    <Box columnGap={1}>
-      <Text dimColor>copy</Text>
-      <Button key={'src-' + i} plain dimColor label="[ source ]" onPress={p => copyText($, part.copy, 'the source', p.surface)} />
-      <Button key={'art-' + i} plain dimColor label="[ art ]" onPress={p => copyText($, art, 'the drawing', p.surface)} />
-      <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, runs, th, 'the drawing', p.surface)} />
-    </Box>
-  )
+  const copy = actionRow($, ui, i, th, 'diagram', [
+    { key: 'src', label: 'source', ext: part.lang === 'mermaid' ? 'mmd' : 'txt', what: 'the source', text: () => part.copy },
+    { key: 'art', label: 'art', ext: 'txt', what: 'the drawing', text: () => art },
+    { key: 'png', label: 'png', ext: 'png', what: 'the drawing', text: () => art, runs },
+  ])
   const body = (
     <Box flexDirection="column" marginY={1}>
       {rows.map(r => <Text mono>{r.map(sg => <Text {...styleOf(sg)}>{sg.text}</Text>)}</Text>)}
@@ -2482,13 +2570,15 @@ async function drawsAnywhere($: EngineInterface) {
   return false
 }
 // Settings for the parts of a reply undertone draws.
+// Surfaces drawn on the machine Claude Code runs on, where a saved file is the viewer's own.
+const LOCAL_SURFACES = new Set(['terminal', 'desktop', 'vscode'])
 const copyOn = () => opt<unknown>('copyButtons', true) !== false
 // Without copy buttons: the drawing with every copy button (and the dim "copy" before a copy row)
 // taken out, so no row has to know.
 function stripCopies(node: any): any {
   if (Array.isArray(node)) return node.map(stripCopies).filter(x => x !== null)
   if (!node || typeof node !== 'object') return node
-  if (node.type === 'Button' && /^(copy|cells|html|art|png|src)-/.test(String(node.props?.key ?? node.key ?? ''))) return null
+  if (node.type === 'Button' && /^(copy|cells|html|art|png|src|save)-/.test(String(node.props?.key ?? node.key ?? ''))) return null
   if (node.type === 'Text' && node.props?.dimColor && JSON.stringify(node.children) === '["copy"]') return null
   return node.children ? { ...node, children: stripCopies(node.children) } : node
 }
@@ -2711,12 +2801,10 @@ async function exportChat($: EngineInterface, target: string) {
     if (m.role === 'assistant' && m.toolUses.length) out.push(`<sub>${m.toolUses.length} tool call(s): ${m.toolUses.map(u => u.tool ?? '').join(', ')}</sub>`, '')
     n++
   }
-  const sep = (await windows($)) ? '\\' : '/'
+  const sep = await sepOf($)
   let path = target.trim()
   if (!path) {
-    const home = await homeDir($)
-    const dir = (await $.fs.exists(home + sep + 'Downloads').catch(() => false)) ? home + sep + 'Downloads' : home
-    path = `${dir}${sep}chat-${new Date(now).toISOString().slice(0, 10)}-${(await $.session.id()).slice(0, 8)}.md`
+    path = `${await downloadsDir($)}${sep}chat-${new Date(now).toISOString().slice(0, 10)}-${(await $.session.id()).slice(0, 8)}.md`
   }
   await $.fs.write(path, out.join('\n'))
   return `Exported ${n} messages (${timed} with times) to ${path}`
@@ -2885,7 +2973,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await Promise.all([
-      $.command.register({ name: 'undertone', description: 'Undertone: on, off, setup, copy, or help', argumentHint: 'on|off|setup|copy|copy code|help' }),
+      $.command.register({ name: 'undertone', description: 'Undertone: on, off, setup, copy, save, or help', argumentHint: 'on|off|setup|copy|copy code|save|save code|help' }),
       $.command.register({ name: 'undertone-theme', description: 'Switch the chat bubble theme', argumentHint: Object.keys(THEMES).join('|') }),
       $.command.register({ name: 'undertone-pins', description: 'List pinned (★) chat bubbles' }),
       $.command.register({ name: 'undertone-doctor', description: 'undertone: show what the time index holds' }),
@@ -3207,9 +3295,11 @@ export const register: Register = (on, options) => {
     }
     const hov = hoverButtons(e)
     const scope = 'c:' + foldId
+    const ctx = { id: foldId, saving: (await $.state.get({ ...SAVE_ROWS, id: foldId })).value ?? [], canSave: LOCAL_SURFACES.has(e.surface) && !(await overSsh($).catch(() => false)) }
     const pinned = await isPinned($, text)
     const star = await starButton($, Button, 'Claude', text, await msOf($, e.requestId, text))
     const reactions = await reactionRow($, { Box, Button }, textKey(text))
+    rowCtx = ctx // no await from here until the blocks have drawn, so no other reply can change it
     const reply = (
       <Box marginTop={first ? th.spacing : 0}>
         <Box key="bubble" width={w} {...bubbleBox(th.claude, th.padding)} {...(hov ? { hover: { scope } } : {})}>
@@ -3233,7 +3323,12 @@ export const register: Register = (on, options) => {
               const ui = $.ui.resolve(e)
               const Image = 'Image' in ui ? ui.Image : undefined
               const pic = pics.get(i)
-              const copy = <Button key={'copy-' + i} plain dimColor label="[ copy latex ]" onPress={p => copyText($, part.copy, 'LaTeX', p.surface)} />
+              const copy = (
+                <Box columnGap={1}>
+                  <Button key={'copy-' + i} plain dimColor label="[ copy latex ]" onPress={p => copyText($, part.copy, 'LaTeX', p.surface)} />
+                  {saveButton($, ui, i, 'formula', 'tex', part.copy + '\n')}
+                </Box>
+              )
               const body = pic && Image
                 ? <Image key={'math' + i} source={{ file: pic.path, format: 'png' }} {...imageCells(pic.w, pic.h, room - 2, 6)} alt={texToText(part.copy)} />
                 : <Text italic color={th.claude.text}>{part.copy.split('\n').map(texToText).join('\n')}</Text>
@@ -3251,16 +3346,13 @@ export const register: Register = (on, options) => {
                 : { bold: !!(sg.head || sg.bold), color: sg.head ? optColor('tableHeaderColor', th.claude.label) : sg.code ? optColor('inlineCodeColor', th.user.border) : sg.link ? optColor('linkColor', th.user.border) : sg.bold ? optColor('strongColor', optColor('tableTextColor', th.claude.text)) : sg.italic ? optColor('emphasisColor', optColor('tableTextColor', th.claude.text)) : optColor('tableTextColor', th.claude.text) }
               const runs = layoutTable(table, room, 'box').map(l => l.map(sg => ({ text: sg.text, ...cellInk(sg) })))
               const art = artOf(runs)
-              const copy = (
-                <Box columnGap={1}>
-                  <Text dimColor>copy</Text>
-                  <Button key={'copy-' + i} plain dimColor label="[ md ]" onPress={p => copyText($, part.copy, 'the table as Markdown', p.surface)} />
-                  <Button key={'cells-' + i} plain dimColor label="[ cells ]" onPress={p => copyText($, tableCells(table), 'the table as cells', p.surface)} />
-                  <Button key={'html-' + i} plain dimColor label="[ html ]" onPress={p => copyRich($, tableHtml(table), tableCells(table), 'the table', p.surface)} />
-                  <Button key={'art-' + i} plain dimColor label="[ art ]" onPress={p => copyText($, art, 'the table as art', p.surface)} />
-                  <Button key={'png-' + i} plain dimColor label="[ png ]" onPress={p => copyPng($, runs, th, 'the table', p.surface)} />
-                </Box>
-              )
+              const copy = actionRow($, $.ui.resolve(e), i, th, 'table', [
+                { key: 'copy', label: 'md', ext: 'md', what: 'the table as Markdown', text: () => part.copy },
+                { key: 'cells', label: 'cells', save: 'csv', ext: 'csv', what: 'the table as cells', text: () => tableCells(table), file: () => tableCsv(table) },
+                { key: 'html', label: 'html', ext: 'html', what: 'the table', text: () => tableCells(table), html: () => tableHtml(table), file: () => htmlDoc('Table', tableHtml(table)) },
+                { key: 'art', label: 'art', ext: 'txt', what: 'the table as art', text: () => art },
+                { key: 'png', label: 'png', ext: 'png', what: 'the table', text: () => art, runs },
+              ])
               const body = (
                 <Box flexDirection="column" marginY={1}>
                   {lines.map(line => (
@@ -3653,6 +3745,16 @@ export const register: Register = (on, options) => {
       await copyText($, code.copy, 'the last code block')
       return { text: 'Copied the last code block.' }
     }
+    if (arg === 'save' || arg === 'save code') {
+      const got = await $.session.messages().catch(() => undefined)
+      const last = got && !('deny' in got) ? [...got].reverse().find(m => m.role === 'assistant' && m.text.trim()) : undefined
+      if (!last) return { text: 'No reply to save yet.' }
+      if (arg === 'save') { const path = await saveText($, 'reply', 'md', last.text.trim() + '\n'); return { text: path ? `Saved the last reply to ${path}` : 'Could not save the last reply.' } }
+      const code = [...splitReply(last.text)].reverse().find(p => p.kind === 'code')
+      if (!code) return { text: 'The last reply has no code block.' }
+      const path = await saveText($, 'code', codeExt(code.lang), code.copy.endsWith('\n') ? code.copy : code.copy + '\n')
+      return { text: path ? `Saved the last code block to ${path}` : 'Could not save the last code block.' }
+    }
     if (arg === 'setup') {
       await $.state.set(SETUP, { step: 0, draft: {} })
       await $.ui.open({ id: SETUP_PANE, title: 'Undertone setup', focus: true, closeOnEscape: true, rows: 40, columns: 90 })
@@ -3665,6 +3767,7 @@ export const register: Register = (on, options) => {
         '  /undertone setup          pick theme, shapes and layout with a live preview',
         '  /undertone off | on       Claude Code\'s own look for this session, and back',
         '  /undertone copy [code]    copy the last reply, or its last code block, without the mouse',
+        '  /undertone save [code]    save the last reply (.md), or its last code block, to Downloads',
         '  /undertone-theme [name]   theme gallery, or switch theme (reset = /config default)',
         '  /undertone-pins           pinned messages',
         '  /undertone-export [path]  save the chat as Markdown with timestamps',

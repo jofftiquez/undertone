@@ -16,6 +16,7 @@ declare module 'claude-code' {
       setup: { step: number; draft: Record<string, string> } | null
       reactions: Record<string, string[]> | null
       reactOpen: StateFamily<boolean>
+      saveRows: StateFamily<number[]>
       lastPrompt: { key: string; read: boolean } | null
       agentRun: StateFamily<{ status: 'background' | 'done' | 'stopped' }>
     }
